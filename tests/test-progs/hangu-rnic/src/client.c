@@ -1,5 +1,9 @@
 #include "librdma.h"
 
+char id_name[10];
+uint8_t  cpu_id;
+uint32_t num_client;
+
 int clt_update_qps(struct rdma_resc *resc, uint16_t svr_lid) {
 
     /* Modify Local QP */

@@ -1,5 +1,9 @@
 #include "librdma.h"
 
+char id_name[10];
+uint8_t  cpu_id;
+uint32_t num_client;
+
 int svr_update_qps(struct rdma_resc *resc) {
 
     for (int i = 0; i < resc->num_qp * resc->num_rem; ++i) {

@@ -16,6 +16,9 @@
 
 #include "../../../../src/dev/rdma/kfd_ioctl.h"
 
+extern char id_name[10];
+extern uint8_t  cpu_id;
+extern uint32_t num_client;
 
 /* -------Useful API{begin}-------- */
 /* Useful defines */
@@ -30,13 +33,6 @@
 
 #define MAX_CPL_NUM 100
 
-char id_name[10];
-uint8_t  cpu_id;
-uint32_t num_client;
-
-#define HGRNIC_PRINT(x, ...) do {                       \
-    printf("%s-%d [libhgrnic] " x, id_name, cpu_id, ##__VA_ARGS__);\
-} while (0)
 
 /* --------Useful API{end}-------- */
 

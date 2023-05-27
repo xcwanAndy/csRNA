@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include "libhgrnic.h"
 
+extern char id_name[10];
+extern uint8_t  cpu_id;
+extern uint32_t num_client;
 
 /**
  * @note Post Recv request for QP0 (Connection Management QP)

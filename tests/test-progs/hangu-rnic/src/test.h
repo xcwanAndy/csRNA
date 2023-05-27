@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include "libhgrnic.h"
 
+extern char id_name[10];
+extern uint8_t  cpu_id;
+extern uint32_t num_client;
+
 struct rem_info {
     uint64_t raddr;
     uint32_t rkey;

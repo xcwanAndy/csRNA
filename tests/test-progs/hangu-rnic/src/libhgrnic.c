@@ -3,6 +3,14 @@
 
 #define SLEEP_CNT 1000
 
+extern char id_name[10];
+extern uint8_t  cpu_id;
+extern uint32_t num_client;
+
+#define HGRNIC_PRINT(x, ...) do {                       \
+    printf("%s-%d [libhgrnic] " x, id_name, cpu_id, ##__VA_ARGS__);\
+} while (0)
+
 void wait(uint32_t n) {
     for (uint32_t i = 0; i < n; ++i);
 }

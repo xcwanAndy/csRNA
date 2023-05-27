@@ -1,5 +1,9 @@
 #include "test.h"
 
+char id_name[10];
+uint8_t  cpu_id;
+uint32_t num_client;
+
 struct ibv_wqe *init_rcv_wqe (struct ibv_mr* mr, int num) {
     struct ibv_wqe *wqe = (struct ibv_wqe *)malloc(sizeof(struct ibv_wqe) * num);
 
@@ -187,6 +191,10 @@ int main (int argc, char **argv) {
     int rtn;
     char is_server = 0;
     uint16_t llid, dlid;
+
+    num_client = 1;
+    cpu_id     = 0;
+    sprintf(id_name, "%d", 999);
 
     if (argc == 4)
         is_server = 1;

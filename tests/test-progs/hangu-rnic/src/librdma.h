@@ -5,7 +5,7 @@
 #include <getopt.h>
 #include <pthread.h>
 
-#define TEST_QP_NUM   6
+#define TEST_QP_NUM   256
 #define TEST_CQ_NUM ((TEST_QP_NUM / (300 / num_client) ) + 1)
 #define TEST_WR_NUM 10
 #define LATENCY_WR_NUM 1
@@ -15,6 +15,10 @@
 #define US (1000UL * NS)
 #define NS (1000UL)
 
+
+extern char id_name[10];
+extern uint8_t  cpu_id;
+extern uint32_t num_client;
 
 /* valid op-mode */
 #define OPMODE_RDMA_WRITE    0
@@ -54,7 +58,6 @@
 
 
 #endif
-
 
 /* Connection Request Type */
 enum rdma_cr_type {
