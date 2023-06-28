@@ -1,0 +1,8 @@
+-I
+/usr/src/linux-oem-5.14-headers-5.14.0-1057/include/
+-I
+/usr/include/
+-I
+build/X86/
+-I
+src/

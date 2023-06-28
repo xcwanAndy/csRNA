@@ -48,7 +48,7 @@
 
 #endif
 
-#define QPN_NUM   (256 * 3)
+#define QPN_NUM   (1 * 3)
 
 
 #define PAGE_SIZE_LOG 12
