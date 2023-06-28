@@ -5,8 +5,11 @@ from step1_cache import *
 
 # Parse parameters
 import argparse
-parser = argparse.ArgumentParser(description='A simple system with 2-level cache')
-parser.add_argument("binary", default="tests/test-progs/hello/bin/x86/linux/hello", nargs="?", type=str,
+parser = argparse.ArgumentParser(description=
+                                 'A simple system with 2-level cache')
+parser.add_argument("binary",
+                    default="tests/test-progs/hello/bin/x86/linux/hello",
+                    nargs="?", type=str,
                     help="Path to the binary to execute.")
 parser.add_argument("--l1i_size",
                     help=f"L1 instruction cache size. Default: 16kB.")

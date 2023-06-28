@@ -47,41 +47,41 @@
 using namespace HanGuRnicDef;
 
 class NicCtrl {
-	private:
-		HanGuRnic *rnic;
-		Addr hcrAddr;
+    private:
+        HanGuRnic *rnic;
+        Addr hcrAddr;
 
-	public:
-		typedef NicCtrlParams Params;
-		const Params *
-			params() const {
-				return dynamic_cast<const Params *>(_params);
-			}
+    public:
+        typedef NicCtrlParams Params;
+        const Params *
+            params() const {
+                return dynamic_cast<const Params *>(_params);
+            }
 
-		NicCtrl(const Params *params);
-		~NicCtrl();
-		void init() override;
+        NicCtrl(const Params *params);
+        ~NicCtrl();
+        void init() override;
 
-		// PIO Interface
-		Tick writeConfig(PacketPtr pkt) override;
-		Tick read(PacketPtr pkt) override;
-		Tick write(PacketPtr pkt) override;
+        // PIO Interface
+        Tick writeConfig(PacketPtr pkt) override;
+        Tick read(PacketPtr pkt) override;
+        Tick write(PacketPtr pkt) override;
 
-		// Driver functions
-		uint8_t NicCtrl::checkHcr(PortProxy& portProxy);
+        // Driver functions
+        uint8_t NicCtrl::checkHcr(PortProxy& portProxy);
 
-		/* related to link delay processing */
-		Tick LinkDelay;
-		std::queue<std::pair<EthPacketPtr, Tick>> ethRxDelayFifo;
+        /* related to link delay processing */
+        Tick LinkDelay;
+        std::queue<std::pair<EthPacketPtr, Tick>> ethRxDelayFifo;
 
-		void ethRxPktProc(); // When rx packet
-		EventFunctionWrapper ethRxPktProcEvent;
+        void ethRxPktProc(); // When rx packet
+        EventFunctionWrapper ethRxPktProcEvent;
 
-		void serialize(CheckpointOut &cp) const override;
-		void unserialize(CheckpointIn &cp) override;
+        void serialize(CheckpointOut &cp) const override;
+        void unserialize(CheckpointIn &cp) override;
 
-		DrainState drain() override;
-		void drainResume() override;
+        DrainState drain() override;
+        void drainResume() override;
 
 };
 

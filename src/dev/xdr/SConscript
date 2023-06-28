@@ -1,9 +1,9 @@
 # -*- mode:python -*-
-# 
+#
 # ======================= START OF LICENSE NOTICE =======================
 #   Copyright (C) 2021 Kang Ning, NCIC, ICT, CAS.
 #   All Rights Reserved.
-# 
+#
 #   NO WARRANTY. THE PRODUCT IS PROVIDED BY DEVELOPER "AS IS" AND ANY
 #   EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 #   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
@@ -20,10 +20,10 @@
 #       <kangning18z@ict.ac.cn>
 #   Date: 2021.07.08
 
-# 
+#
 # @file
 # Han Gu RNIC register defination declaration.
-# 
+#
 
 Import('*')
 

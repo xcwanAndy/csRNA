@@ -1,8 +1,8 @@
-# 
+#
 # ======================= START OF LICENSE NOTICE =======================
 #   Copyright (C) 2021 Kang Ning, NCIC, ICT, CAS.
 #   All Rights Reserved.
-# 
+#
 #   NO WARRANTY. THE PRODUCT IS PROVIDED BY DEVELOPER "AS IS" AND ANY
 #   EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 #   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
@@ -31,11 +31,11 @@ from m5.objects.HanGuRnic import HanGuRnic
 class NicCtrl(PciDevice):
     type = 'NicCtrl'
     cxx_header = "dev/xdr/nic_ctrl.hh"
-    
+
     interface = EtherInt("Ethernet Interface")
 
     nic = HanGuRnic("HanGu Rnic")
-    
+
     mpt_cache_num = Param.Int(40000,
         "Number of mpt cache enteries")
     mtt_cache_num = Param.Int(50000,
@@ -44,7 +44,7 @@ class NicCtrl(PciDevice):
         "Number of qpc cache enteries")
     cqc_cache_num = Param.Int(2000,
         "Number of cqc cache enteries")
-    
+
     VendorID = 0x8086
     DeviceID = 0x1075
     SubsystemID = 0x1008
@@ -64,14 +64,16 @@ class NicCtrl(PciDevice):
     InterruptLine = 0x1e
     InterruptPin = 0x01
     BAR0Size = '1kB'
-    
+
     dma_read_delay = Param.Latency('500ns', "delay after desc fetch occurs")
     dma_write_delay = Param.Latency('250ns', "delay after desc wb occurs")
 
     pci_speed = Param.NetworkBandwidth('1Gbps', "pci speed in bits per second")
-    ether_speed = Param.NetworkBandwidth('1Gbps', "NIC speed in bits per second")
-    
-    reorder_cap = Param.Int(100, "Number of concurrent request for one qpc req channel")
+    ether_speed = Param.NetworkBandwidth('1Gbps',
+                                         "NIC speed in bits per second")
+
+    reorder_cap = Param.Int(100,
+                    "Number of concurrent request for one qpc req channel")
 
     link_delay = Param.Latency('1us', "ethernet link delay")
     cpu_num    = Param.Int(10, "Number of CPUs in this node")
