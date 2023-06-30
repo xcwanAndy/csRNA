@@ -25,6 +25,7 @@
 
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <queue>
 
@@ -52,22 +53,22 @@ NicCtrl::NicCtrl(const Params *p)
     pciBandwidth(p->pci_speed),
     etherBandwidth(p->ether_speed),
     LinkDelay     (p->link_delay),
-    ethRxPktProcEvent([this]{ ethRxPktProc(); }, name()) {
+    ethRxPktProcEvent([this]{ ethRxPktProc(); }, name())
+{
 
         DPRINTF(NicCtrl, " qpc_cache_cap %d  reorder_cap %d cpuNum 0x%x\n",
                 p->qpc_cache_cap, p->reorder_cap, p->cpu_num);
 
-        mboxBuf = new uint8_t[4096];
 
         BARSize[0]  = (1 << 12);
-        BARAddrs[0] = 0xc000000000000000;
+        BARAddrs[0] = 0xd000000000000000;
 
         AddrRangeList addr_list = nic->getAddrRanges();
         AddrRange bar0 = addr_list.pop_front(); // Get BAR0
         hcrAddr = bar0.start();
 
         doorBell = hcrAddr + 0x18;
-    } // NicCtrl::NicCtrl
+} // NicCtrl::NicCtrl
 
 NicCtrl::~NicCtrl() {
 }
@@ -76,7 +77,11 @@ void NicCtrl::init() {
     PciDevice::init();
 }
 
-///////////////////////////// NicCtrl::PIO relevant {begin}/////////////////////////////
+HanGuRnic* HanGuRnicParams::create() {
+    return new HanGuRnic(this);
+}
+
+///////////////////////// NicCtrl::PIO relevant {begin}////////////////////////
 
 Tick NicCtrl::writeConfig(PacketPtr pkt) {
     int offset = pkt->getAddr() & PCI_CONFIG_SIZE;
@@ -88,15 +93,14 @@ Tick NicCtrl::writeConfig(PacketPtr pkt) {
     }
 
     /* !TODO: We will implement PCI configuration here.
-     * Some work may need to be done here based for the pci 
+     * Some work may need to be done here based for the pci
      * COMMAND bits, we don't realize now. */
 
     return configDelay;
 }
 
 
-Tick
-HanGuRnic::read(PacketPtr pkt) {
+Tick HanGuRnic::read(PacketPtr pkt) {
     int bar;
     Addr daddr;
 
@@ -127,8 +131,7 @@ HanGuRnic::read(PacketPtr pkt) {
     return pioDelay;
 }
 
-Tick
-HanGuRnic::write(PacketPtr pkt) {
+Tick HanGuRnic::write(PacketPtr pkt) {
     int bar;
     Addr daddr;
 
@@ -143,7 +146,9 @@ HanGuRnic::write(PacketPtr pkt) {
     assert(bar == 0);
 
     if (daddr == 0 && pkt->getSize() == sizeof(Hcr)) {
-        DPRINTF(PioEngine, " PioEngine.write: HCR, inparam: 0x%x\n", pkt->getLE<Hcr>().inParam_l);
+        DPRINTF(PioEngine,
+                " PioEngine.write: HCR, inparam: 0x%x\n",
+                pkt->getLE<Hcr>().inParam_l);
 
         regs.inParam.iparaml(pkt->getLE<Hcr>().inParam_l);
         regs.inParam.iparamh(pkt->getLE<Hcr>().inParam_h);
@@ -153,18 +158,20 @@ HanGuRnic::write(PacketPtr pkt) {
         regs.cmdCtrl = pkt->getLE<Hcr>().goOpcode;
 
         /* Schedule CEU */
-        if (!ceuProcEvent.scheduled()) { 
+        if (!ceuProcEvent.scheduled()) {
             schedule(ceuProcEvent, curTick() + clockPeriod());
         }
 
     } else if (daddr == 0x18 && pkt->getSize() == sizeof(uint64_t)) {
 
         /*  Used to Record start of time */
-        DPRINTF(HanGuRnic, " PioEngine.write: Doorbell, value %#X pio interval %ld\n", pkt->getLE<uint64_t>(), curTick() - this->tick); 
+        DPRINTF(HanGuRnic,
+                " PioEngine.write: Doorbell, value %#X pio interval %ld\n",
+                pkt->getLE<uint64_t>(), curTick() - this->tick);
 
         regs.db._data = pkt->getLE<uint64_t>();
 
-        DoorbellPtr dbell = make_shared<DoorbellFifo>(regs.db.opcode(), 
+        DoorbellPtr dbell = make_shared<DoorbellFifo>(regs.db.opcode(),
                 regs.db.num(), regs.db.qpn(), regs.db.offset());
         pio2ccuDbFifo.push(dbell);
 
@@ -172,15 +179,19 @@ HanGuRnic::write(PacketPtr pkt) {
         this->tick = curTick();
 
         /* Schedule doorbellProc */
-        if (!doorbellProcEvent.scheduled()) { 
+        if (!doorbellProcEvent.scheduled()) {
             schedule(doorbellProcEvent, curTick() + clockPeriod());
         }
 
-        DPRINTF(HanGuRnic, " PioEngine.write: qpn %d, opcode %x, num %d\n", 
+        DPRINTF(HanGuRnic, " PioEngine.write: qpn %d, opcode %x, num %d\n",
                 regs.db.qpn(), regs.db.opcode(), regs.db.num());
-    } else if (daddr == 0x20 && pkt->getSize() == sizeof(uint32_t)) { /* latency sync */
+    } else if (daddr == 0x20
+            && pkt->getSize() == sizeof(uint32_t)) {
+            /* latency sync */
 
-        DPRINTF(HanGuRnic, " PioEngine.write: sync bit, value %#X, syncCnt %d\n", pkt->getLE<uint32_t>(), syncCnt); 
+        DPRINTF(HanGuRnic,
+                " PioEngine.write: sync bit, value %#X, syncCnt %d\n",
+                pkt->getLE<uint32_t>(), syncCnt);
 
         if (pkt->getLE<uint32_t>() == 1) {
             syncCnt += 1;
@@ -196,24 +207,28 @@ HanGuRnic::write(PacketPtr pkt) {
             }
         }
 
-        DPRINTF(HanGuRnic, " PioEngine.write: sync bit end, value %#X, syncCnt %d\n", pkt->getLE<uint32_t>(), syncCnt); 
+        DPRINTF(HanGuRnic,
+                " PioEngine.write: sync bit end, value %#X, syncCnt %d\n",
+                pkt->getLE<uint32_t>(), syncCnt);
     } else {
-        panic("Write request to unknown address : %#x && size 0x%x\n", daddr, pkt->getSize());
+        panic("Write request to unknown address : %#x && size 0x%x\n",
+                daddr, pkt->getSize());
     }
 
     pkt->makeAtomicResponse();
     return pioDelay;
 }
-///////////////////////////// NicCtrl::PIO relevant {end}//////////////////////////////
+/////////////////////////// NicCtrl::PIO relevant {end}////////////////////////
 
 
-///////////////////////////// NicCtrl::HCR relevant {begin}//////////////////////////////
+/////////////////////////// NicCtrl::HCR relevant {begin}//////////////////////
 
 uint8_t NicCtrl::checkHcr() {
 
     uint32_t goOp;
     // DPRINTF(NicCtrl, " Start read `GO`.\n");
-    rnic->dmaRead(hcrAddr + (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode), sizeof(goOp), nullptr, &goOp);
+    rnic->dmaRead(hcrAddr + (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode),
+            sizeof(goOp), nullptr, &goOp);
 
     if ((goOp >> 31) == 1) {
         // DPRINTF(NicCtrl, " `GO` is still high\n");
@@ -223,7 +238,7 @@ uint8_t NicCtrl::checkHcr() {
     return 0;
 }
 
-void NicCtrl::postHcr(uint64_t inParam, 
+void NicCtrl::postHcr(uint64_t inParam,
         uint32_t inMod, uint64_t outParam, uint8_t opcode) {
 
     HanGuRnicDef::Hcr hcr;
@@ -246,10 +261,123 @@ void NicCtrl::postHcr(uint64_t inParam,
     rnic->dmaWrite(hcrAddr, sizeof(hcr), nullptr, &hcr);
 }
 
-///////////////////////////// NicCtrl::HCR relevant {end}//////////////////////////////
+////////////////////////// NicCtrl::HCR relevant {end}/////////////////////////
 
+/* -------------------------- Mailbox {begin} ------------------------ */
+void NicCtrl::initMailbox() {
 
-HanGuRnic *
-HanGuRnicParams::create() {
-    return new HanGuRnic(this);
+    uint32_t allocPages = MAILBOX_PAGE_NUM;
+    mailbox.data = new uint8_t[4096 * allocPages];
+
+    // The index
+    mailbox.addr = 0;
+
+    DPRINTF(NicCtrl, " mailbox.addr : 0x%x\n", mailbox.addr);
 }
+
+/* -------------------------- Mailbox {end} ------------------------ */
+
+/* -------------------------- ICM {begin} ------------------------ */
+
+void NicCtrl::initIcm(uint8_t qpcNumLog, uint8_t cqcNumLog,
+        uint8_t mptNumLog, uint8_t mttNumLog) {
+
+    Addr startPtr = 0;
+
+    mttMeta.start     = startPtr;
+    mttMeta.size      = ((1 << mttNumLog) * sizeof(HanGuRnicDef::MttResc));
+    mttMeta.entrySize = sizeof(HanGuRnicDef::MttResc);
+    mttMeta.entryNumLog = mttNumLog;
+    mttMeta.entryNumPage= (1 << (mttNumLog-(12-3)));
+    mttMeta.bitmap    = new uint8_t[mttMeta.entryNumPage];
+    memset(mttMeta.bitmap, 0, mttMeta.entryNumPage);
+    startPtr += mttMeta.size;
+    DPRINTF(NicCtrl, " mttMeta.entryNumPage 0x%x\n", mttMeta.entryNumPage);
+
+    mptMeta.start = startPtr;
+    mptMeta.size  = ((1 << mptNumLog) * sizeof(HanGuRnicDef::MptResc));
+    mptMeta.entrySize = sizeof(HanGuRnicDef::MptResc);
+    mptMeta.entryNumLog = mptNumLog;
+    mptMeta.entryNumPage = (1 << (mptNumLog-(12-5)));
+    mptMeta.bitmap = new uint8_t[mptMeta.entryNumPage];
+    memset(mptMeta.bitmap, 0, mptMeta.entryNumPage);
+    startPtr += mptMeta.size;
+    DPRINTF(NicCtrl, " mptMeta.entryNumPage 0x%x\n", mptMeta.entryNumPage);
+
+    cqcMeta.start = startPtr;
+    cqcMeta.size  = ((1 << cqcNumLog) * sizeof(HanGuRnicDef::CqcResc));
+    cqcMeta.entrySize = sizeof(HanGuRnicDef::CqcResc);
+    cqcMeta.entryNumLog = cqcNumLog;
+    cqcMeta.entryNumPage = (1 << (cqcNumLog-(12-4)));
+    cqcMeta.bitmap = new uint8_t[cqcMeta.entryNumPage];
+    memset(cqcMeta.bitmap, 0, cqcMeta.entryNumPage);
+    startPtr += cqcMeta.size;
+    DPRINTF(NicCtrl, " cqcMeta.entryNumPage 0x%x\n", cqcMeta.entryNumPage);
+
+    qpcMeta.start = startPtr;
+    qpcMeta.size  = ((1 << qpcNumLog) * sizeof(HanGuRnicDef::QpcResc));
+    qpcMeta.entrySize   = sizeof(HanGuRnicDef::QpcResc);
+    qpcMeta.entryNumLog = qpcNumLog;
+    qpcMeta.entryNumPage = (1 << (qpcNumLog-(12-8)));
+    qpcMeta.bitmap = new uint8_t[qpcMeta.entryNumPage];
+    memset(qpcMeta.bitmap, 0, qpcMeta.entryNumPage);
+    startPtr += qpcMeta.size;
+    DPRINTF(NicCtrl, " qpcMeta.entryNumPage 0x%x\n", qpcMeta.entryNumPage);
+
+    /* put initResc into mailbox */
+    HanGuRnicDef::InitResc initResc;
+    initResc.qpcBase   = qpcMeta.start;
+    initResc.qpsNumLog = qpcNumLog;
+    initResc.cqcBase   = cqcMeta.start;
+    initResc.cqsNumLog = cqcNumLog;
+    initResc.mptBase   = mptMeta.start;
+    initResc.mptNumLog = mptNumLog;
+    initResc.mttBase   = mttMeta.start;
+    // DPRINTF(NicCtrl, " qpcMeta.start: 0x%lx, cqcMeta.start : 0x%lx, mptMeta.start : 0x%lx, mttMeta.start : 0x%lx\n",
+    //         qpcMeta.start, cqcMeta.start, mptMeta.start, mttMeta.start);
+    memcpy(mailbox.data + mailbox.addr,
+            &initResc, sizeof(HanGuRnicDef::InitResc));
+
+    postHcr((uint64_t)mailbox.addr, 0, 0, HanGuRnicDef::INIT_ICM);
+}
+
+
+uint8_t NicCtrl::isIcmMapped(RescMeta &rescMeta, Addr index) {
+
+    Addr icmVPage = (rescMeta.start + index * rescMeta.entrySize) >> 12;
+
+    return (icmAddrmap.find(icmVPage) != icmAddrmap.end());
+}
+
+Addr NicCtrl::allocIcm(RescMeta &rescMeta, Addr index) {
+    Addr icmVPage = (rescMeta.start + index * rescMeta.entrySize) >> 12;
+    while (icmAddrmap.find(icmVPage) != icmAddrmap.end()) { /* cause we allocate multiply resources one time,
+                                                             * the resources may be cross-page. */
+        ++icmVPage;
+    }
+    DPRINTF(NicCtrl, " rescMeta.start: 0x%lx, index 0x%x, entrySize %d icmVPage 0x%lx\n", rescMeta.start, index, rescMeta.entrySize, icmVPage);
+    for (uint32_t i =  0; i < ICM_ALLOC_PAGE_NUM; ++i) {
+        if (i == 0) {
+            icmAddrmap[icmVPage] = new uint8_t[4096 * ICM_ALLOC_PAGE_NUM];
+        } else {
+            icmAddrmap[icmVPage + i] = icmAddrmap[icmVPage] + (i << 12);
+        }
+        DPRINTF(NicCtrl, " icmAddrmap[0x%x(%d)]: 0x%lx\n", icmVPage+i, i, icmAddrmap[icmVPage+i]);
+    }
+    return icmVPage;
+}
+
+void NicCtrl::writeIcm(uint8_t rescType, RescMeta &rescMeta, Addr icmVPage) {
+
+    // put IcmResc into mailbox
+    HanGuRnicDef::IcmResc icmResc;
+    icmResc.pageNum = ICM_ALLOC_PAGE_NUM; // now we support ICM_ALLOC_PAGE_NUM pages
+    icmResc.vAddr   = icmVPage << 12;
+    icmResc.pAddr   = icmAddrmap[icmVPage];
+    memcpy(mailbox.data, &icmResc, sizeof(HanGuRnicDef::InitResc));
+    DPRINTF(NicCtrl, " pageNum %d, vAddr 0x%lx, pAddr 0x%lx\n", icmResc.pageNum, icmResc.vAddr, icmResc.pAddr);
+    postHcr((uint64_t)mailbox.addr, 1, rescType, HanGuRnicDef::WRITE_ICM);
+}
+
+/* -------------------------- ICM {end} ------------------------ */
+

@@ -50,11 +50,11 @@ class NicCtrl {
     private:
         HanGuRnic *rnic;
         Addr hcrAddr;
+        Addr doorBell;
 
     public:
         typedef NicCtrlParams Params;
-        const Params *
-            params() const {
+        const Params *params() const {
                 return dynamic_cast<const Params *>(_params);
             }
 
@@ -67,22 +67,40 @@ class NicCtrl {
         Tick read(PacketPtr pkt) override;
         Tick write(PacketPtr pkt) override;
 
+        // Addr mailbox;
+        struct Mailbox {
+            Addr addr;
+            uint8_t *data;
+        };
+        Mailbox mailbox;
+        void initMailbox();
+
+        // Resc
+        struct RescMeta {
+            Addr     start ;  // start index (icm vaddr) of the resource
+            uint64_t size  ;  // size of the resource(in byte)
+            uint32_t entrySize; // size of one entry (in byte)
+            uint8_t  entryNumLog;
+            uint32_t entryNumPage;
+            // ICM space bitmap, one bit indicates one page.
+            uint8_t *bitmap;  // resource bitmap, 
+        };
+        uint32_t allocResc(uint8_t rescType, RescMeta &rescMeta);
+
         // Driver functions
-        uint8_t NicCtrl::checkHcr(PortProxy& portProxy);
+        uint8_t checkHcr(PortProxy& portProxy);
+        void postHcr(uint64_t inParam,
+            uint32_t inMod, uint64_t outParam, uint8_t opcode);
+
+        std::unordered_map<Addr, Addr> icmAddrmap; // <icm vaddr page, icm paddr>
+        void initIcm(uint8_t qpcNumLog, uint8_t cqcNumLog,
+            uint8_t mptNumLog, uint8_t mttNumLog);
+        uint8_t isIcmMapped(RescMeta &rescMeta, Addr index);
+        Addr allocIcm(RescMeta &rescMeta, Addr index);
+        void writeIcm(uint8_t rescType, RescMeta &rescMeta, Addr icmVPage);
 
         /* related to link delay processing */
         Tick LinkDelay;
-        std::queue<std::pair<EthPacketPtr, Tick>> ethRxDelayFifo;
-
-        void ethRxPktProc(); // When rx packet
-        EventFunctionWrapper ethRxPktProcEvent;
-
-        void serialize(CheckpointOut &cp) const override;
-        void unserialize(CheckpointIn &cp) override;
-
-        DrainState drain() override;
-        void drainResume() override;
-
 };
 
 #endif //__NIC_CTRL_HH__
