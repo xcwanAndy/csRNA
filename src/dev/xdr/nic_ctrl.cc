@@ -48,7 +48,7 @@ using namespace std;
 
 NicCtrl::NicCtrl(const Params *p)
     : rnic(&p->rnic),
-    memAlloc(0xd100000000000000),
+    memAlloc(0xd300000000000000),
     dmaReadDelay(p->dma_read_delay),
     dmaWriteDelay(p->dma_write_delay),
     pciBandwidth(p->pci_speed),
@@ -413,13 +413,13 @@ void NicCtrl::allocMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
         /* TODO: The vaddr and paddr mappings should be done when allocating
          */
         process->pTable->translate((Addr)args->vaddr[i], (Addr &)args->paddr[i]);
-        DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: vaddr: 0x%lx, paddr: 0x%lx mtt_index %d\n", 
+        DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: vaddr: 0x%lx, paddr: 0x%lx mtt_index %d\n",
                 (uint64_t)args->vaddr[i], (uint64_t)args->paddr[i], args->mtt_index);
     }
     args->mtt_index -= (args->batch_size - 1);
 }
 
-void NicCtrl::writeMtt(PortProxy& portProxy, TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
+void NicCtrl::writeMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
 
     // put mttResc into mailbox
     HanGuRnicDef::MttResc mttResc[MAX_MR_BATCH];
@@ -431,6 +431,104 @@ void NicCtrl::writeMtt(PortProxy& portProxy, TypedBufferArg<kfd_ioctl_init_mtt_a
     postHcr((uint64_t)mailbox.addr, args->mtt_index, args->batch_size, HanGuRnicDef::WRITE_MTT);
 }
 /* -------------------------- MTT {end} ------------------------ */
+
+/* -------------------------- MPT {begin} ------------------------ */
+void NicCtrl::allocMpt(TypedBufferArg<kfd_ioctl_alloc_mpt_args> &args) {
+    for (uint32_t i = 0; i < args->batch_size; ++i) {
+        args->mpt_index = allocResc(HanGuRnicDef::ICMTYPE_MPT, mptMeta);
+        DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MPT: mpt_index %d batch_size %d\n", args->mpt_index, args->batch_size);
+    }
+    args->mpt_index -= (args->batch_size - 1);
+}
+
+void NicCtrl::writeMpt(TypedBufferArg<kfd_ioctl_write_mpt_args> &args) {
+    // put MptResc into mailbox
+    HanGuRnicDef::MptResc mptResc[MAX_MR_BATCH];
+    for (uint32_t i = 0; i < args->batch_size; ++i) {
+        mptResc[i].flag       = args->flag     [i];
+        mptResc[i].key        = args->mpt_index[i];
+        mptResc[i].length     = args->length   [i];
+        mptResc[i].startVAddr = args->addr     [i];
+        mptResc[i].mttSeg     = args->mtt_index[i];
+        DPRINTF(NicCtrl, " HGKFD_IOC_WRITE_MPT: mpt_index %d(%d) mtt_index %d(%d) batch_size %d\n", 
+                args->mpt_index[i], mptResc[i].key, args->mtt_index[i], mptResc[i].mttSeg, args->batch_size);
+    }
+    memcpy(mailbox.data, mptResc, sizeof(HanGuRnicDef::MptResc) * args->batch_size);
+
+    postHcr((uint64_t)mailbox.addr, args->mpt_index[0], args->batch_size, HanGuRnicDef::WRITE_MPT);
+}
+/* -------------------------- MPT {end} ------------------------ */
+
+
+/* -------------------------- CQC {begin} ------------------------ */
+void NicCtrl::allocCqc(TypedBufferArg<kfd_ioctl_alloc_cq_args> &args) {
+    args->cq_num = allocResc(HanGuRnicDef::ICMTYPE_CQC, cqcMeta);
+}
+
+void NicCtrl::writeCqc(TypedBufferArg<kfd_ioctl_write_cqc_args> &args) {
+    /* put CqcResc into mailbox */
+    HanGuRnicDef::CqcResc cqcResc;
+    cqcResc.cqn    = args->cq_num  ;
+    cqcResc.lkey   = args->lkey    ;
+    cqcResc.offset = args->offset  ;
+    cqcResc.sizeLog= args->size_log;
+    memcpy(mailbox.data, &cqcResc, sizeof(HanGuRnicDef::CqcResc));
+    postHcr((uint64_t)mailbox.addr, args->cq_num, 0, HanGuRnicDef::WRITE_CQC);
+}
+/* -------------------------- CQC {end} ------------------------ */
+
+
+/* -------------------------- QPC {begin} ------------------------ */
+void NicCtrl::allocQpc(TypedBufferArg<kfd_ioctl_alloc_qp_args> &args) {
+    for (uint32_t i = 0; i < args->batch_size; ++i) {
+        // HANGU_PRINT(HanGuDriver, " allocQpc: qpc_bitmap: 0x%x 0x%x 0x%x\n", qpcMeta.bitmap[0], qpcMeta.bitmap[1], qpcMeta.bitmap[2]);
+        args->qp_num = allocResc(HanGuRnicDef::ICMTYPE_QPC, qpcMeta);
+        DPRINTF(NicCtrl, " allocQpc: qpc_bitmap:  0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n"
+                                                        " 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n"
+                                                        " 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n"
+                                                        " 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+                qpcMeta.bitmap[0], qpcMeta.bitmap[1], qpcMeta.bitmap[2], qpcMeta.bitmap[3], qpcMeta.bitmap[4], qpcMeta.bitmap[5], qpcMeta.bitmap[6], qpcMeta.bitmap[7],
+                qpcMeta.bitmap[8], qpcMeta.bitmap[9], qpcMeta.bitmap[10], qpcMeta.bitmap[11], qpcMeta.bitmap[12], qpcMeta.bitmap[13], qpcMeta.bitmap[14], qpcMeta.bitmap[15],
+                qpcMeta.bitmap[16], qpcMeta.bitmap[17], qpcMeta.bitmap[18], qpcMeta.bitmap[19], qpcMeta.bitmap[20], qpcMeta.bitmap[21], qpcMeta.bitmap[22], qpcMeta.bitmap[23],
+                qpcMeta.bitmap[24], qpcMeta.bitmap[25], qpcMeta.bitmap[26], qpcMeta.bitmap[27], qpcMeta.bitmap[28], qpcMeta.bitmap[29], qpcMeta.bitmap[30], qpcMeta.bitmap[31]);
+    }
+    args->qp_num -= (args->batch_size - 1);
+}
+
+void NicCtrl::writeQpc(TypedBufferArg<kfd_ioctl_write_qpc_args> &args) {
+    /* put QpcResc into mailbox */
+    HanGuRnicDef::QpcResc qpcResc[MAX_QPC_BATCH]; // = (HanGuRnicDef::QpcResc *)mailbox.vaddr;
+    memset(qpcResc, 0, sizeof(HanGuRnicDef::QpcResc) * args->batch_size);
+    for (uint32_t i = 0; i < args->batch_size; ++i) {
+        qpcResc[i].flag           = args->flag             [i];
+        qpcResc[i].qpType         = args->type             [i];
+        qpcResc[i].srcQpn         = args->src_qpn          [i];
+        qpcResc[i].lLid           = args->llid             [i];
+        qpcResc[i].cqn            = args->cq_num           [i];
+        qpcResc[i].sndWqeBaseLkey = args->snd_wqe_base_lkey[i];
+        qpcResc[i].sndWqeOffset   = args->snd_wqe_offset   [i];
+        qpcResc[i].sqSizeLog      = args->sq_size_log      [i];
+        qpcResc[i].rcvWqeBaseLkey = args->rcv_wqe_base_lkey[i];
+        qpcResc[i].rcvWqeOffset   = args->rcv_wqe_offset   [i];
+        qpcResc[i].rqSizeLog      = args->rq_size_log      [i];
+
+        qpcResc[i].ackPsn  = args->ack_psn [i];
+        qpcResc[i].sndPsn  = args->snd_psn [i];
+        qpcResc[i].expPsn  = args->exp_psn [i];
+        qpcResc[i].dLid    = args->dlid    [i];
+        qpcResc[i].destQpn = args->dest_qpn[i];
+
+        qpcResc[i].qkey    = args->qkey[i];
+
+        DPRINTF(NicCtrl, " writeQpc: qpn: 0x%x\n", qpcResc[i].srcQpn);
+    }
+    DPRINTF(NicCtrl, " writeQpc: args->batch_size: %d\n", args->batch_size);
+    memcpy(mailbox.data, qpcResc, sizeof(HanGuRnicDef::QpcResc) * args->batch_size);
+    DPRINTF(NicCtrl, " writeQpc: args->batch_size1: %d\n", args->batch_size);
+    postHcr((uint64_t)mailbox.addr, args->src_qpn[0], args->batch_size, HanGuRnicDef::WRITE_QPC);
+}
+
+/* -------------------------- QPC {end} ------------------------ */
 
 
 /******************************* MemAllocator ***************************/

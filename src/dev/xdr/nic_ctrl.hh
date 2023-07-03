@@ -154,18 +154,22 @@ class NicCtrl : public PciDevice {
         // MTT
         RescMeta mttMeta;
         void allocMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args);
+        void writeMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args);
 
         // MPT
         RescMeta mptMeta;
+        void allocMpt(TypedBufferArg<kfd_ioctl_alloc_mpt_args> &args);
+        void writeMpt(TypedBufferArg<kfd_ioctl_write_mpt_args> &args);
 
         // CQC
         RescMeta cqcMeta;
+        void allocCqc(TypedBufferArg<kfd_ioctl_alloc_cq_args> &args);
+        void writeCqc(TypedBufferArg<kfd_ioctl_write_cqc_args> &args);
 
         // QPC
         RescMeta qpcMeta;
-
-        /* related to link delay processing */
-        Tick LinkDelay;
+        void allocQpc(TypedBufferArg<kfd_ioctl_alloc_qp_args> &args);
+        void writeQpc(TypedBufferArg<kfd_ioctl_write_qpc_args> &args);
 };
 
 
