@@ -49,11 +49,58 @@
 
 using namespace HanGuRnicDef;
 
-class NicCtrl {
+typedef struct {
+    AddrRange vaddr;
+    AddrRange paddr;
+}MemBlock;
+
+class MemAllocator {
+    private:
+        Addr baseAddr;
+        // Ordered by paddr
+        std::list<MemBlock> memMap;
+
+    public:
+        MemAllocator(Addr deviceAddr) {
+            baseAddr = deviceAddr;
+            MemBlock initBlock = {
+                .vaddr = AddrRange(0, 0),
+                .paddr = AddrRange(baseAddr, baseAddr)
+            };
+            memMap.emplace_front(initBlock);
+        }
+        ~MemAllocator();
+
+        /* Alloc a block of memory
+         * Return a virtual addr
+         */
+        MemBlock allocMem(size_t size);
+
+        void destroyMem(MemBlock block);
+
+        /* Get MemBlock from physical addr
+         */
+        MemBlock getPhyBlock(Addr paddr);
+
+        /* Get MemBlock from virtual addr
+         */
+        MemBlock getVirBlock(Addr vaddr);
+
+        /* Get physical addr from virtual addr
+         */
+        Addr getPhyAddr(Addr vaddr);
+
+        /* Get virtual addr from physical addr
+         */
+        Addr getVirAddr(Addr paddr);
+};
+
+class NicCtrl : public PciDevice {
     private:
         HanGuRnic *rnic;
         Addr hcrAddr;
         Addr doorBell;
+        MemAllocator memAlloc;
 
     public:
         typedef NicCtrlParams Params;
@@ -122,50 +169,5 @@ class NicCtrl {
 };
 
 
-class MemAllocator {
-    private:
-        Addr baseAddr;
-
-        struct MemBlock{
-            AddrRange vaddr;
-            AddrRange paddr;
-        };
-        // Ordered by paddr
-        std::list<MemBlock> memMap;
-
-    public:
-        MemAllocator(Addr deviceAddr) {
-            baseAddr = deviceAddr;
-            MemBlock initBlock {
-                .vaddr = AddrRange(0, 0),
-                .paddr = AddrRange(baseAddr, baseAddr)
-            };
-            memMap.emplace_front(initBlock);
-        }
-        ~MemAllocator();
-
-        /* Alloc a block of memory
-         * Return a virtual addr
-         */
-        Addr allocMem(size_t size);
-
-        void destroyMem(MemBlock block);
-
-        /* Get MemBlock from physical addr
-         */
-        MemBlock getPhyBlock(Addr paddr);
-
-        /* Get MemBlock from virtual addr
-         */
-        MemBlock getVirBlock(Addr vaddr);
-
-        /* Get physical addr from virtual addr
-         */
-        Addr getPhyAddr(Addr vaddr);
-
-        /* Get virtual addr from physical addr
-         */
-        Addr getVirAddr(Addr paddr);
-};
 
 #endif //__NIC_CTRL_HH__

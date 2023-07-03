@@ -48,6 +48,7 @@ using namespace std;
 
 NicCtrl::NicCtrl(const Params *p)
     : rnic(&p->rnic),
+    memAlloc(0xd100000000000000),
     dmaReadDelay(p->dma_read_delay),
     dmaWriteDelay(p->dma_write_delay),
     pciBandwidth(p->pci_speed),
@@ -58,7 +59,6 @@ NicCtrl::NicCtrl(const Params *p)
 
         DPRINTF(NicCtrl, " qpc_cache_cap %d  reorder_cap %d cpuNum 0x%x\n",
                 p->qpc_cache_cap, p->reorder_cap, p->cpu_num);
-
 
         BARSize[0]  = (1 << 12);
         BARAddrs[0] = 0xd000000000000000;
@@ -357,7 +357,8 @@ Addr NicCtrl::allocIcm(RescMeta &rescMeta, Addr index) {
             rescMeta.start, index, rescMeta.entrySize, icmVPage);
     for (uint32_t i =  0; i < ICM_ALLOC_PAGE_NUM; ++i) {
         if (i == 0) {
-            icmAddrmap[icmVPage] = new uint8_t[4096 * ICM_ALLOC_PAGE_NUM];
+            MemBlock memBlock = memAlloc.allocMem(4096 * ICM_ALLOC_PAGE_NUM);
+            icmAddrmap[icmVPage] = memBlock.paddr.start();
         } else {
             icmAddrmap[icmVPage + i] = icmAddrmap[icmVPage] + (i << 12);
         }
@@ -409,6 +410,8 @@ void NicCtrl::allocMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
         args->mtt_index = allocResc(HanGuRnicDef::ICMTYPE_MTT, mttMeta);
         DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: mtt_bitmap: %d\n", mttMeta.bitmap[0]);
         DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: mtt_index: %d\n", args->mtt_index);
+        /* TODO: The vaddr and paddr mappings should be done when allocating
+         */
         process->pTable->translate((Addr)args->vaddr[i], (Addr &)args->paddr[i]);
         DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: vaddr: 0x%lx, paddr: 0x%lx mtt_index %d\n", 
                 (uint64_t)args->vaddr[i], (uint64_t)args->paddr[i], args->mtt_index);
@@ -423,19 +426,19 @@ void NicCtrl::writeMtt(PortProxy& portProxy, TypedBufferArg<kfd_ioctl_init_mtt_a
     for (uint32_t i = 0; i < args->batch_size; ++i) {
         mttResc[i].pAddr = args->paddr[i];
     }
-    portProxy.writeBlob(mailbox.vaddr, mttResc, sizeof(HanGuRnicDef::MttResc) * args->batch_size);
+    memcpy(mailbox.data, mttResc, sizeof(HanGuRnicDef::MttResc) * args->batch_size);
 
-    postHcr(portProxy, (uint64_t)mailbox.paddr, args->mtt_index, args->batch_size, HanGuRnicDef::WRITE_MTT);
+    postHcr((uint64_t)mailbox.addr, args->mtt_index, args->batch_size, HanGuRnicDef::WRITE_MTT);
 }
 /* -------------------------- MTT {end} ------------------------ */
 
 
 /******************************* MemAllocator ***************************/
 
-Addr MemAllocator::allocMem(size_t size) {
+struct MemBlock MemAllocator::allocMem(size_t size) {
     Addr paddrStart, paddrEnd;
-    uint8_t *vaddrStart = new uint8_t[size];
-    uint8_t *vaddrEnd = vaddrStart + size - 1;
+    Addr vaddrStart = (Addr) (new uint8_t[size]);
+    Addr vaddrEnd = vaddrStart + size - 1;
     auto it = memMap.begin();
 
     for (it; it != memMap.end() - 1; it++) {
@@ -445,10 +448,13 @@ Addr MemAllocator::allocMem(size_t size) {
             break;
         }
     }
-    memMap.insert(it+1, MemBlock {
-            .paddr = AddrRange(paddrStart, paddrEnd),
-            .vaddr = AddrRange(vaddrStart, vaddrEnd)
-            });
+    MemBlock memBlock = {
+        .paddr = AddrRange(paddrStart, paddrEnd),
+        .vaddr = AddrRange(vaddrStart, vaddrEnd)
+    }
+    memMap.insert(it+1, memBlock);
+
+    return memBlock;
 }
 
 void MemAllocator::destroyMem(MemBlock memBlock) {
