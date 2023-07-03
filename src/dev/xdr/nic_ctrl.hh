@@ -31,8 +31,10 @@
 #include <list>
 #include <unordered_map>
 
+#include "base/addr_range.hh"
 #include "dev/rdma/hangu_rnic_defs.hh"
 #include "dev/rdma/hangu_rnic.hh"
+#include "dev/rdma/kfd_ioctl.h"
 
 #include "base/inet.hh"
 #include "debug/EthernetDesc.hh"
@@ -42,6 +44,7 @@
 #include "dev/net/etherpkt.hh"
 #include "dev/net/pktfifo.hh"
 #include "dev/pci/device.hh"
+#include "sim/syscall_emul_buf.hh"
 #include "params/NicCtrl.hh"
 
 using namespace HanGuRnicDef;
@@ -67,12 +70,13 @@ class NicCtrl {
         Tick read(PacketPtr pkt) override;
         Tick write(PacketPtr pkt) override;
 
-        // Addr mailbox;
+        // mailbox;
         struct Mailbox {
             Addr addr;
             uint8_t *data;
         };
         Mailbox mailbox;
+        Addr mailboxBase = 0xd100000000000000;
         void initMailbox();
 
         // Resc
@@ -83,24 +87,85 @@ class NicCtrl {
             uint8_t  entryNumLog;
             uint32_t entryNumPage;
             // ICM space bitmap, one bit indicates one page.
-            uint8_t *bitmap;  // resource bitmap, 
+            uint8_t *bitmap;  // resource bitmap,
         };
         uint32_t allocResc(uint8_t rescType, RescMeta &rescMeta);
 
-        // Driver functions
-        uint8_t checkHcr(PortProxy& portProxy);
-        void postHcr(uint64_t inParam,
-            uint32_t inMod, uint64_t outParam, uint8_t opcode);
-
+        // ICM
         std::unordered_map<Addr, Addr> icmAddrmap; // <icm vaddr page, icm paddr>
+        Addr icmBase = 0xd200000000000000;
         void initIcm(uint8_t qpcNumLog, uint8_t cqcNumLog,
             uint8_t mptNumLog, uint8_t mttNumLog);
         uint8_t isIcmMapped(RescMeta &rescMeta, Addr index);
         Addr allocIcm(RescMeta &rescMeta, Addr index);
         void writeIcm(uint8_t rescType, RescMeta &rescMeta, Addr icmVPage);
 
+        // HCR
+        uint8_t checkHcr(PortProxy& portProxy);
+        void postHcr(uint64_t inParam, uint32_t inMod, uint64_t outParam, uint8_t opcode);
+
+        // MTT
+        RescMeta mttMeta;
+        void allocMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args);
+
+        // MPT
+        RescMeta mptMeta;
+
+        // CQC
+        RescMeta cqcMeta;
+
+        // QPC
+        RescMeta qpcMeta;
+
         /* related to link delay processing */
         Tick LinkDelay;
+};
+
+
+class MemAllocator {
+    private:
+        Addr baseAddr;
+
+        struct MemBlock{
+            AddrRange vaddr;
+            AddrRange paddr;
+        };
+        // Ordered by paddr
+        std::list<MemBlock> memMap;
+
+    public:
+        MemAllocator(Addr deviceAddr) {
+            baseAddr = deviceAddr;
+            MemBlock initBlock {
+                .vaddr = AddrRange(0, 0),
+                .paddr = AddrRange(baseAddr, baseAddr)
+            };
+            memMap.emplace_front(initBlock);
+        }
+        ~MemAllocator();
+
+        /* Alloc a block of memory
+         * Return a virtual addr
+         */
+        Addr allocMem(size_t size);
+
+        void destroyMem(MemBlock block);
+
+        /* Get physical addr from virtual addr
+         */
+        MemBlock getPhyBlock(Addr vaddr);
+
+        /* Get virtual addr from physical addr
+         */
+        MemBlock getVirBlock(Addr paddr);
+
+        /* Get physical addr from virtual addr
+         */
+        Addr getPhyAddr(Addr vaddr);
+
+        /* Get virtual addr from physical addr
+         */
+        Addr getVirAddr(Addr paddr);
 };
 
 #endif //__NIC_CTRL_HH__

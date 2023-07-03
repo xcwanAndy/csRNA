@@ -265,12 +265,12 @@ void NicCtrl::postHcr(uint64_t inParam,
 
 /* -------------------------- Mailbox {begin} ------------------------ */
 void NicCtrl::initMailbox() {
-
+    // The size of mailbox: 128KB
     uint32_t allocPages = MAILBOX_PAGE_NUM;
     mailbox.data = new uint8_t[4096 * allocPages];
 
     // The index
-    mailbox.addr = 0;
+    mailbox.addr = mailboxBase;
 
     DPRINTF(NicCtrl, " mailbox.addr : 0x%x\n", mailbox.addr);
 }
@@ -278,7 +278,7 @@ void NicCtrl::initMailbox() {
 /* -------------------------- Mailbox {end} ------------------------ */
 
 /* -------------------------- ICM {begin} ------------------------ */
-
+// Interconnect Context Memory (ICM)
 void NicCtrl::initIcm(uint8_t qpcNumLog, uint8_t cqcNumLog,
         uint8_t mptNumLog, uint8_t mttNumLog) {
 
@@ -333,29 +333,28 @@ void NicCtrl::initIcm(uint8_t qpcNumLog, uint8_t cqcNumLog,
     initResc.mptBase   = mptMeta.start;
     initResc.mptNumLog = mptNumLog;
     initResc.mttBase   = mttMeta.start;
-    // DPRINTF(NicCtrl, " qpcMeta.start: 0x%lx, cqcMeta.start : 0x%lx, mptMeta.start : 0x%lx, mttMeta.start : 0x%lx\n",
+    // DPRINTF(NicCtrl, " qpcMeta.start: 0x%lx, cqcMeta.start : 0x%lx,
+    //         mptMeta.start : 0x%lx, mttMeta.start : 0x%lx\n",
     //         qpcMeta.start, cqcMeta.start, mptMeta.start, mttMeta.start);
-    memcpy(mailbox.data + mailbox.addr,
-            &initResc, sizeof(HanGuRnicDef::InitResc));
-
+    memcpy(mailbox.data, &initResc, sizeof(HanGuRnicDef::InitResc));
     postHcr((uint64_t)mailbox.addr, 0, 0, HanGuRnicDef::INIT_ICM);
 }
 
 
 uint8_t NicCtrl::isIcmMapped(RescMeta &rescMeta, Addr index) {
-
     Addr icmVPage = (rescMeta.start + index * rescMeta.entrySize) >> 12;
-
     return (icmAddrmap.find(icmVPage) != icmAddrmap.end());
 }
 
 Addr NicCtrl::allocIcm(RescMeta &rescMeta, Addr index) {
     Addr icmVPage = (rescMeta.start + index * rescMeta.entrySize) >> 12;
-    while (icmAddrmap.find(icmVPage) != icmAddrmap.end()) { /* cause we allocate multiply resources one time,
-                                                             * the resources may be cross-page. */
+    while (icmAddrmap.find(icmVPage) != icmAddrmap.end()) {
+        /* cause we allocate multiply resources one time,
+         * the resources may be cross-page. */
         ++icmVPage;
     }
-    DPRINTF(NicCtrl, " rescMeta.start: 0x%lx, index 0x%x, entrySize %d icmVPage 0x%lx\n", rescMeta.start, index, rescMeta.entrySize, icmVPage);
+    DPRINTF(NicCtrl, " rescMeta.start: 0x%lx, index 0x%x, entrySize %d icmVPage 0x%lx\n",
+            rescMeta.start, index, rescMeta.entrySize, icmVPage);
     for (uint32_t i =  0; i < ICM_ALLOC_PAGE_NUM; ++i) {
         if (i == 0) {
             icmAddrmap[icmVPage] = new uint8_t[4096 * ICM_ALLOC_PAGE_NUM];
@@ -367,7 +366,7 @@ Addr NicCtrl::allocIcm(RescMeta &rescMeta, Addr index) {
     return icmVPage;
 }
 
-void NicCtrl::writeIcm(uint8_t rescType, RescMeta &rescMeta, Addr icmVPage) {
+void NicCtrl::writeIcm(uint8_t rescType, Addr icmVPage) {
 
     // put IcmResc into mailbox
     HanGuRnicDef::IcmResc icmResc;
@@ -380,4 +379,78 @@ void NicCtrl::writeIcm(uint8_t rescType, RescMeta &rescMeta, Addr icmVPage) {
 }
 
 /* -------------------------- ICM {end} ------------------------ */
+
+
+/* -------------------------- Resc {begin} ------------------------ */
+uint32_t NicCtrl::allocResc(uint8_t rescType, RescMeta &rescMeta) {
+    uint32_t i = 0, j = 0;
+    uint32_t rescNum = 0;
+    while (rescMeta.bitmap[i] == 0xff) {
+        ++i;
+    }
+    rescNum = i * 8;
+
+    while ((rescMeta.bitmap[i] >> j) & 0x01) {
+        ++rescNum;
+        ++j;
+    }
+    rescMeta.bitmap[i] |= (1 << j);
+
+    rescNum += (cpu_id << RESC_LIM_LOG);
+    return rescNum;
+}
+/* -------------------------- Resc {end} ------------------------ */
+
+
+/* -------------------------- MTT {begin} ------------------------ */
+
+void NicCtrl::allocMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
+    for (uint32_t i = 0; i < args->batch_size; ++i) {
+        args->mtt_index = allocResc(HanGuRnicDef::ICMTYPE_MTT, mttMeta);
+        DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: mtt_bitmap: %d\n", mttMeta.bitmap[0]);
+        DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: mtt_index: %d\n", args->mtt_index);
+        process->pTable->translate((Addr)args->vaddr[i], (Addr &)args->paddr[i]);
+        DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: vaddr: 0x%lx, paddr: 0x%lx mtt_index %d\n", 
+                (uint64_t)args->vaddr[i], (uint64_t)args->paddr[i], args->mtt_index);
+    }
+    args->mtt_index -= (args->batch_size - 1);
+}
+
+void NicCtrl::writeMtt(PortProxy& portProxy, TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
+
+    // put mttResc into mailbox
+    HanGuRnicDef::MttResc mttResc[MAX_MR_BATCH];
+    for (uint32_t i = 0; i < args->batch_size; ++i) {
+        mttResc[i].pAddr = args->paddr[i];
+    }
+    portProxy.writeBlob(mailbox.vaddr, mttResc, sizeof(HanGuRnicDef::MttResc) * args->batch_size);
+
+    postHcr(portProxy, (uint64_t)mailbox.paddr, args->mtt_index, args->batch_size, HanGuRnicDef::WRITE_MTT);
+}
+/* -------------------------- MTT {end} ------------------------ */
+
+
+/******************************* MemAllocator ***************************/
+
+Addr MemAllocator::allocMem(size_t size) {
+    Addr paddrStart, paddrEnd;
+    uint8_t *vaddrStart = new uint8_t[size];
+    uint8_t *vaddrEnd = vaddrStart + size - 1;
+    auto it = memMap.begin();
+
+    for (it; it != memMap.end() - 1; it++) {
+        if (memMap[it].paddr.end() + size < memMap[it+1].paddr.start()) {
+            paddrStart = memMap[it].paddr.end() + 1;
+            paddrEnd = paddrStart + size - 1;
+            break;
+        }
+    }
+    memMap.insert(it+1, MemBlock {
+            .paddr = AddrRange(paddrStart, paddrEnd),
+            .vaddr = AddrRange(vaddrStart, vaddrEnd)
+            });
+}
+
+void MemAllocator::destroyMem(MemBlock memBlock) {}
+
 
