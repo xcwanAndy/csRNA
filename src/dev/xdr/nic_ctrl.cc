@@ -451,6 +451,51 @@ Addr MemAllocator::allocMem(size_t size) {
             });
 }
 
-void MemAllocator::destroyMem(MemBlock memBlock) {}
+void MemAllocator::destroyMem(MemBlock memBlock) {
+    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
+        if (memMap[it] == memBlock) {
+            memMap.erase(it);
+        }
+    }
+    return;
+}
 
+MemBlock MemAllocator::getPhyBlock(Addr paddr) {
+    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
+        if (memMap[it].paddr.contains(paddr)) {
+            return memMap[it];
+        }
+    }
+    return NULL;
+}
 
+MemBlock MemAllocator::getVirBlock(Addr vaddr) {
+    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
+        if (memMap[it].vaddr.contains(vaddr)) {
+            return memMap[it];
+        }
+    }
+    return NULL;
+}
+
+Addr MemAllocator::getPhyAddr(Addr vaddr) {
+    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
+        if (memMap[it].vaddr.contains(vaddr)) {
+            uint64_t idx = vaddr - memMap[it].vaddr.start();
+            Addr paddr = memMap[it].paddr.start() + idx;
+        }
+    }
+    return paddr;
+}
+
+Addr MemAllocator::getVirAddr(Addr paddr) {
+    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
+        if (memMap[it].paddr.contains(paddr)) {
+            uint64_t idx = paddr - memMap[it].paddr.start();
+            Addr vaddr = memMap[it].vaddr.start() + idx;
+        }
+    }
+    return vaddr;
+}
+
+/******************************* MemAllocator ***************************/

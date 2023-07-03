@@ -151,13 +151,13 @@ class MemAllocator {
 
         void destroyMem(MemBlock block);
 
-        /* Get physical addr from virtual addr
+        /* Get MemBlock from physical addr
          */
-        MemBlock getPhyBlock(Addr vaddr);
+        MemBlock getPhyBlock(Addr paddr);
 
-        /* Get virtual addr from physical addr
+        /* Get MemBlock from virtual addr
          */
-        MemBlock getVirBlock(Addr paddr);
+        MemBlock getVirBlock(Addr vaddr);
 
         /* Get physical addr from virtual addr
          */
