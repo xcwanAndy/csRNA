@@ -31,9 +31,11 @@ SimObject('Xdr.py')
 
 # NIC controller
 Source('nic_ctrl.cc')
+Source('libibv.cc')
 
 
 DebugFlag('NicCtrl')
 DebugFlag('PioEngine')
+DebugFlag('Ibv')
 
-CompoundFlag('XDR', ['NicCtrl', 'PioEngine'])
+CompoundFlag('XDR', ['NicCtrl', 'PioEngine', 'Ibv'])

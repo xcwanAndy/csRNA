@@ -27,6 +27,15 @@ from m5.objects.PciDevice import PciDevice
 from m5.objects.Ethernet import *
 from m5.objects.Process import EmulatedDriver
 from m5.objects.HanGuRnic import HanGuRnic
+from m5.objects.NicCtrl import NicCtrl
+
+class Ibv(SimObject):
+    type = 'Ibv'
+    cxx_header = "dev/xdr/libibv.hh"
+
+    nicCtrl = NicCtrl("Nic Controller")
+
+
 
 class NicCtrl(PciDevice):
     type = 'NicCtrl'
@@ -34,7 +43,7 @@ class NicCtrl(PciDevice):
 
     interface = EtherInt("Ethernet Interface")
 
-    nic = HanGuRnic("HanGu Rnic")
+    rnic = HanGuRnic("HanGu Rnic")
 
     mpt_cache_num = Param.Int(40000,
         "Number of mpt cache enteries")

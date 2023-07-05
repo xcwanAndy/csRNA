@@ -112,6 +112,10 @@ class NicCtrl : public PciDevice {
         ~NicCtrl();
         void init() override;
 
+        // Attirbute access
+        Addr getDoorbell() { return doorBell; }
+        MemAllocator *getMemAlloc(){ return &memAlloc; }
+
         // Control Interface
         int nicCtrl(unsigned req, Addr ioc_buf);
         EventFunctionWrapper nicCtrlEvent;

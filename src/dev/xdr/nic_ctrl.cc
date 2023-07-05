@@ -36,6 +36,7 @@
 #include "debug/Drain.hh"
 #include "dev/net/etherpkt.hh"
 #include "debug/XDR.hh"
+#include "dev/pci/device.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
 #include "params/NicCtrl.hh"
@@ -47,7 +48,8 @@ using namespace Net;
 using namespace std;
 
 NicCtrl::NicCtrl(const Params *p)
-    : rnic(&p->rnic),
+    : PciDevice(p),
+    rnic(&p->rnic),
     memAlloc(0xd300000000000000),
     nicCtrlEvent([this]{ nicCtrl(); }, name()),
     dmaReadDelay(p->dma_read_delay),
@@ -64,7 +66,7 @@ NicCtrl::NicCtrl(const Params *p)
         BARSize[0]  = (1 << 12);
         BARAddrs[0] = 0xd000000000000000;
 
-        AddrRangeList addr_list = nic->getAddrRanges();
+        AddrRangeList addr_list = rnic->getAddrRanges();
         AddrRange bar0 = addr_list.pop_front(); // Get BAR0
         hcrAddr = bar0.start();
 
@@ -92,6 +94,7 @@ int NicCtrl::nicCtrl() {
     if (HGKFD_IOC_GET_TIME == nicCtrlReq) {
         DPRINTF(NicCtrl, " ioctl: HGKFD_IOC_GET_TIME %ld\n", curTick());
 
+        /* TODO: TypedBufferArg should be substituted. */
         /* Get && copy current time */
         TypedBufferArg<kfd_ioctl_get_time_args> args(ioc_buf);
         args->cur_time = curTick();
@@ -374,7 +377,7 @@ uint8_t NicCtrl::checkHcr() {
 
     uint32_t goOp;
     // DPRINTF(NicCtrl, " Start read `GO`.\n");
-    rnic->dmaRead(hcrAddr + (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode),
+    dmaRead(hcrAddr + (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode),
             sizeof(goOp), nullptr, &goOp);
 
     if ((goOp >> 31) == 1) {
@@ -405,7 +408,7 @@ void NicCtrl::postHcr(uint64_t inParam,
     DPRINTF(NicCtrl, " outParam_h: 0x%x\n", hcr.outParam_h);
     DPRINTF(NicCtrl, " goOpcode: 0x%x\n", hcr.goOpcode);
 
-    rnic->dmaWrite(hcrAddr, sizeof(hcr), nullptr, &hcr);
+    dmaWrite(hcrAddr, sizeof(hcr), nullptr, &hcr);
 }
 
 ////////////////////////// NicCtrl::HCR relevant {end}/////////////////////////
