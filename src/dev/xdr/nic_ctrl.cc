@@ -49,6 +49,7 @@ using namespace std;
 NicCtrl::NicCtrl(const Params *p)
     : rnic(&p->rnic),
     memAlloc(0xd300000000000000),
+    nicCtrlEvent([this]{ nicCtrl(); }, name()),
     dmaReadDelay(p->dma_read_delay),
     dmaWriteDelay(p->dma_write_delay),
     pciBandwidth(p->pci_speed),
@@ -77,9 +78,155 @@ void NicCtrl::init() {
     PciDevice::init();
 }
 
-HanGuRnic* HanGuRnicParams::create() {
-    return new HanGuRnic(this);
+NicCtrl* HanGuRnicParams::create() {
+    return new NicCtrl(this);
 }
+
+
+/*********************** Control Interface ****************************/
+/* This funtion is corresponded to ioctl in hangu_driver
+ * This function should be scheduled by upper layer
+ */
+int NicCtrl::nicCtrl() {
+
+    if (HGKFD_IOC_GET_TIME == nicCtrlReq) {
+        DPRINTF(NicCtrl, " ioctl: HGKFD_IOC_GET_TIME %ld\n", curTick());
+
+        /* Get && copy current time */
+        TypedBufferArg<kfd_ioctl_get_time_args> args(ioc_buf);
+        args->cur_time = curTick();
+
+        return 0;
+    //} else if (checkHcr(virt_proxy)) {
+        //DPRINTF(NicCtrl, " `GO` bit is still high! Try again later.\n");
+        //return -1;
+    }
+
+    /* ioc_buf should be allocated by memAlloc
+     */
+    Addr pAddr = memAlloc.getPhyAddr(ioc_buf);
+
+    switch (nicCtrlReq) {
+      case HGKFD_IOC_INIT_DEV: // Input
+        {
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_INIT_DEV.\n");
+
+            TypedBufferArg<kfd_ioctl_init_dev_args> args(ioc_buf);
+
+            initMailbox();
+            DPRINTF(NicCtrl, " HGKFD_IOC_INIT_DEV mailbox initialized\n");
+
+            // We don't use input parameter here
+            initIcm(RESC_LEN_LOG, RESC_LEN_LOG, RESC_LEN_LOG, RESC_LEN_LOG);
+        }
+        break;
+      case HGKFD_IOC_ALLOC_MTT: // Input Output
+        {
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_MTT.\n");
+            TypedBufferArg<kfd_ioctl_init_mtt_args> args(ioc_buf);
+            allocMtt(args);
+            DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT mtt allocated\n");
+
+            uint32_t last_mtt_index = (args->mtt_index + args->batch_size - 1);
+            if (!isIcmMapped(mttMeta, last_mtt_index)) { /* last mtt index in this allocation */
+                DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT mtt not mapped\n");
+                Addr icmVPage = allocIcm (mttMeta, args->mtt_index);
+                writeIcm(HanGuRnicDef::ICMTYPE_MTT, mttMeta, icmVPage);
+                DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT mtt ICM mapping is written\n");
+            }
+        }
+        break;
+      case HGKFD_IOC_WRITE_MTT: // Input
+        {
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_WRITE_MTT.\n");
+            TypedBufferArg<kfd_ioctl_init_mtt_args> args(ioc_buf);
+            writeMtt(args);
+        }
+        break;
+      case HGKFD_IOC_ALLOC_MPT: // Output
+        {
+            TypedBufferArg<kfd_ioctl_alloc_mpt_args> args(ioc_buf);
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_MPT. batch_size %d\n", args->batch_size);
+
+            allocMpt(args);
+
+            DPRINTF(NicCtrl, " get into ioctl HGKFD_IOC_ALLOC_MPT: mpt_start_index: %d\n", args->mpt_index);
+            if (!isIcmMapped(mptMeta, args->mpt_index + args->batch_size - 1)) {
+                Addr icmVPage = allocIcm(mptMeta, args->mpt_index);
+                writeIcm(HanGuRnicDef::ICMTYPE_MPT, mptMeta, icmVPage);
+            }
+        }
+        break;
+      case HGKFD_IOC_WRITE_MPT: // Input
+        {
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_WRITE_MPT.\n");
+
+            TypedBufferArg<kfd_ioctl_write_mpt_args> args(ioc_buf);
+
+            writeMpt(args);
+        }
+        break;
+      case HGKFD_IOC_ALLOC_CQ: // Output
+        {
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_CQ.\n");
+            TypedBufferArg<kfd_ioctl_alloc_cq_args> args(ioc_buf);
+
+            allocCqc(args);
+
+            if (!isIcmMapped(cqcMeta, args->cq_num)) {
+                Addr icmVPage = allocIcm (cqcMeta, args->cq_num);
+                writeIcm(HanGuRnicDef::ICMTYPE_CQC, cqcMeta, icmVPage);
+            }
+        }
+        break;
+      case HGKFD_IOC_WRITE_CQC: // Input
+        {
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_WRITE_CQC.\n");
+
+            TypedBufferArg<kfd_ioctl_write_cqc_args> args(ioc_buf);
+
+            writeCqc(args);
+        }
+        break;
+      case HGKFD_IOC_ALLOC_QP: // Output
+        {
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_QP.\n");
+            TypedBufferArg<kfd_ioctl_alloc_qp_args> args(ioc_buf);
+
+            allocQpc(args);
+
+            if (!isIcmMapped(qpcMeta, args->qp_num + args->batch_size - 1)) {
+                Addr icmVPage = allocIcm (qpcMeta, args->qp_num);
+                writeIcm(HanGuRnicDef::ICMTYPE_QPC, qpcMeta, icmVPage);
+            }
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_QP, qp_num: 0x%x(%d), batch_size %d\n",
+                    args->qp_num, RESC_LIM_MASK&args->qp_num, args->batch_size);
+        }
+        break;
+      case HGKFD_IOC_WRITE_QPC: // Input
+        {
+            DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_WRITE_QPC\n");
+            TypedBufferArg<kfd_ioctl_write_qpc_args> args(ioc_buf);
+            writeQpc(args);
+        }
+        break;
+      case HGKFD_IOC_CHECK_GO: 
+        {   
+            /* We don't check `go` bit here, cause it 
+             * has been checked at the beginning of ioctl. */
+            // DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_CHECK_GO, `GO` is cleared.\n");
+        }
+        break;
+      default:
+        {
+            fatal("%s: bad ioctl %d\n", req);
+        }
+        break;
+    }
+    return 0;
+}
+
+/*********************** Control Interface ****************************/
 
 ///////////////////////// NicCtrl::PIO relevant {begin}////////////////////////
 
@@ -100,7 +247,7 @@ Tick NicCtrl::writeConfig(PacketPtr pkt) {
 }
 
 
-Tick HanGuRnic::read(PacketPtr pkt) {
+Tick NicCtrl::read(PacketPtr pkt) {
     int bar;
     Addr daddr;
 
@@ -131,7 +278,7 @@ Tick HanGuRnic::read(PacketPtr pkt) {
     return pioDelay;
 }
 
-Tick HanGuRnic::write(PacketPtr pkt) {
+Tick NicCtrl::write(PacketPtr pkt) {
     int bar;
     Addr daddr;
 
@@ -165,7 +312,7 @@ Tick HanGuRnic::write(PacketPtr pkt) {
     } else if (daddr == 0x18 && pkt->getSize() == sizeof(uint64_t)) {
 
         /*  Used to Record start of time */
-        DPRINTF(HanGuRnic,
+        DPRINTF(NicCtrl,
                 " PioEngine.write: Doorbell, value %#X pio interval %ld\n",
                 pkt->getLE<uint64_t>(), curTick() - this->tick);
 
@@ -183,13 +330,13 @@ Tick HanGuRnic::write(PacketPtr pkt) {
             schedule(doorbellProcEvent, curTick() + clockPeriod());
         }
 
-        DPRINTF(HanGuRnic, " PioEngine.write: qpn %d, opcode %x, num %d\n",
+        DPRINTF(NicCtrl, " PioEngine.write: qpn %d, opcode %x, num %d\n",
                 regs.db.qpn(), regs.db.opcode(), regs.db.num());
     } else if (daddr == 0x20
             && pkt->getSize() == sizeof(uint32_t)) {
             /* latency sync */
 
-        DPRINTF(HanGuRnic,
+        DPRINTF(NicCtrl,
                 " PioEngine.write: sync bit, value %#X, syncCnt %d\n",
                 pkt->getLE<uint32_t>(), syncCnt);
 
@@ -207,7 +354,7 @@ Tick HanGuRnic::write(PacketPtr pkt) {
             }
         }
 
-        DPRINTF(HanGuRnic,
+        DPRINTF(NicCtrl,
                 " PioEngine.write: sync bit end, value %#X, syncCnt %d\n",
                 pkt->getLE<uint32_t>(), syncCnt);
     } else {
@@ -251,12 +398,12 @@ void NicCtrl::postHcr(uint64_t inParam,
     hcr.outParam_l = outParam & 0xffffffff;
     hcr.outParam_h = outParam >> 32;
     hcr.goOpcode   = (1 << 31) | opcode;
-    // DPRINTF(NicCtrl, " inParam_l: 0x%x\n", hcr.inParam_l);
-    // DPRINTF(NicCtrl, " inParam_h: 0x%x\n", hcr.inParam_h);
-    // DPRINTF(NicCtrl, " inMod: 0x%x\n", hcr.inMod);
-    // DPRINTF(NicCtrl, " outParam_l: 0x%x\n", hcr.outParam_l);
-    // DPRINTF(NicCtrl, " outParam_h: 0x%x\n", hcr.outParam_h);
-    // DPRINTF(NicCtrl, " goOpcode: 0x%x\n", hcr.goOpcode);
+    DPRINTF(NicCtrl, " inParam_l: 0x%x\n", hcr.inParam_l);
+    DPRINTF(NicCtrl, " inParam_h: 0x%x\n", hcr.inParam_h);
+    DPRINTF(NicCtrl, " inMod: 0x%x\n", hcr.inMod);
+    DPRINTF(NicCtrl, " outParam_l: 0x%x\n", hcr.outParam_l);
+    DPRINTF(NicCtrl, " outParam_h: 0x%x\n", hcr.outParam_h);
+    DPRINTF(NicCtrl, " goOpcode: 0x%x\n", hcr.goOpcode);
 
     rnic->dmaWrite(hcrAddr, sizeof(hcr), nullptr, &hcr);
 }
@@ -481,7 +628,7 @@ void NicCtrl::writeCqc(TypedBufferArg<kfd_ioctl_write_cqc_args> &args) {
 /* -------------------------- QPC {begin} ------------------------ */
 void NicCtrl::allocQpc(TypedBufferArg<kfd_ioctl_alloc_qp_args> &args) {
     for (uint32_t i = 0; i < args->batch_size; ++i) {
-        // HANGU_PRINT(HanGuDriver, " allocQpc: qpc_bitmap: 0x%x 0x%x 0x%x\n", qpcMeta.bitmap[0], qpcMeta.bitmap[1], qpcMeta.bitmap[2]);
+        // DPRINTF(NicCtrl, " allocQpc: qpc_bitmap: 0x%x 0x%x 0x%x\n", qpcMeta.bitmap[0], qpcMeta.bitmap[1], qpcMeta.bitmap[2]);
         args->qp_num = allocResc(HanGuRnicDef::ICMTYPE_QPC, qpcMeta);
         DPRINTF(NicCtrl, " allocQpc: qpc_bitmap:  0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n"
                                                         " 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n"
