@@ -37,6 +37,7 @@
 #include "dev/net/etherpkt.hh"
 #include "debug/XDR.hh"
 #include "dev/pci/device.hh"
+#include "dev/rdma/kfd_ioctl.h"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
 #include "params/NicCtrl.hh"
@@ -96,7 +97,9 @@ int NicCtrl::nicCtrl() {
 
         /* TODO: TypedBufferArg should be substituted. */
         /* Get && copy current time */
-        TypedBufferArg<kfd_ioctl_get_time_args> args(ioc_buf);
+        //TypedBufferArg<kfd_ioctl_get_time_args> args(ioc_buf);
+        struct kfd_ioctl_get_time_args *args;
+        args = (struct kfd_ioctl_get_time_args *) ioc_buf;
         args->cur_time = curTick();
 
         return 0;
@@ -114,7 +117,9 @@ int NicCtrl::nicCtrl() {
         {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_INIT_DEV.\n");
 
-            TypedBufferArg<kfd_ioctl_init_dev_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_init_dev_args> args(ioc_buf);
+            struct kfd_ioctl_init_dev_args *args;
+            args = (struct kfd_ioctl_init_dev_args *) ioc_buf;
 
             initMailbox();
             DPRINTF(NicCtrl, " HGKFD_IOC_INIT_DEV mailbox initialized\n");
@@ -126,7 +131,9 @@ int NicCtrl::nicCtrl() {
       case HGKFD_IOC_ALLOC_MTT: // Input Output
         {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_MTT.\n");
-            TypedBufferArg<kfd_ioctl_init_mtt_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_init_mtt_args> args(ioc_buf);
+            struct kfd_ioctl_init_mtt_args *args;
+            args = (struct kfd_ioctl_init_mtt_args *) ioc_buf;
             allocMtt(args);
             DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT mtt allocated\n");
 
@@ -142,13 +149,17 @@ int NicCtrl::nicCtrl() {
       case HGKFD_IOC_WRITE_MTT: // Input
         {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_WRITE_MTT.\n");
-            TypedBufferArg<kfd_ioctl_init_mtt_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_init_mtt_args> args(ioc_buf);
+            struct kfd_ioctl_init_mtt_args *args;
+            args = (struct kfd_ioctl_init_mtt_args *) ioc_buf;
             writeMtt(args);
         }
         break;
       case HGKFD_IOC_ALLOC_MPT: // Output
         {
-            TypedBufferArg<kfd_ioctl_alloc_mpt_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_alloc_mpt_args> args(ioc_buf);
+            struct kfd_ioctl_alloc_mpt_args *args;
+            args = (struct kfd_ioctl_alloc_mpt_args *) ioc_buf;
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_MPT. batch_size %d\n", args->batch_size);
 
             allocMpt(args);
@@ -164,7 +175,9 @@ int NicCtrl::nicCtrl() {
         {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_WRITE_MPT.\n");
 
-            TypedBufferArg<kfd_ioctl_write_mpt_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_write_mpt_args> args(ioc_buf);
+            struct kfd_ioctl_write_mpt_args *args;
+            args = (struct kfd_ioctl_write_mpt_args *) ioc_buf;
 
             writeMpt(args);
         }
@@ -172,7 +185,9 @@ int NicCtrl::nicCtrl() {
       case HGKFD_IOC_ALLOC_CQ: // Output
         {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_CQ.\n");
-            TypedBufferArg<kfd_ioctl_alloc_cq_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_alloc_cq_args> args(ioc_buf);
+            struct kfd_ioctl_alloc_cq_args *args;
+            args = (struct kfd_ioctl_alloc_cq_args *) ioc_buf;
 
             allocCqc(args);
 
@@ -186,7 +201,9 @@ int NicCtrl::nicCtrl() {
         {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_WRITE_CQC.\n");
 
-            TypedBufferArg<kfd_ioctl_write_cqc_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_write_cqc_args> args(ioc_buf);
+            struct kfd_ioctl_write_cqc_args *args;
+            args = (struct kfd_ioctl_write_cqc_args *) ioc_buf;
 
             writeCqc(args);
         }
@@ -194,7 +211,9 @@ int NicCtrl::nicCtrl() {
       case HGKFD_IOC_ALLOC_QP: // Output
         {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_QP.\n");
-            TypedBufferArg<kfd_ioctl_alloc_qp_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_alloc_qp_args> args(ioc_buf);
+            struct kfd_ioctl_alloc_qp_args *args;
+            args = (struct kfd_ioctl_alloc_qp_args *) ioc_buf;
 
             allocQpc(args);
 
@@ -209,7 +228,9 @@ int NicCtrl::nicCtrl() {
       case HGKFD_IOC_WRITE_QPC: // Input
         {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_WRITE_QPC\n");
-            TypedBufferArg<kfd_ioctl_write_qpc_args> args(ioc_buf);
+            //TypedBufferArg<kfd_ioctl_write_qpc_args> args(ioc_buf);
+            struct kfd_ioctl_write_qpc_args *args;
+            args = (struct kfd_ioctl_write_qpc_args *) ioc_buf;
             writeQpc(args);
         }
         break;
@@ -555,7 +576,7 @@ uint32_t NicCtrl::allocResc(uint8_t rescType, RescMeta &rescMeta) {
 
 /* -------------------------- MTT {begin} ------------------------ */
 
-void NicCtrl::allocMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
+void NicCtrl::allocMtt(struct kfd_ioctl_init_mtt_args *args) {
     for (uint32_t i = 0; i < args->batch_size; ++i) {
         args->mtt_index = allocResc(HanGuRnicDef::ICMTYPE_MTT, mttMeta);
         DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: mtt_bitmap: %d\n", mttMeta.bitmap[0]);
@@ -569,7 +590,7 @@ void NicCtrl::allocMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
     args->mtt_index -= (args->batch_size - 1);
 }
 
-void NicCtrl::writeMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
+void NicCtrl::writeMtt(struct kfd_ioctl_init_mtt_args *args) {
 
     // put mttResc into mailbox
     HanGuRnicDef::MttResc mttResc[MAX_MR_BATCH];
@@ -583,7 +604,7 @@ void NicCtrl::writeMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args) {
 /* -------------------------- MTT {end} ------------------------ */
 
 /* -------------------------- MPT {begin} ------------------------ */
-void NicCtrl::allocMpt(TypedBufferArg<kfd_ioctl_alloc_mpt_args> &args) {
+void NicCtrl::allocMpt(struct kfd_ioctl_alloc_mpt_args *args) {
     for (uint32_t i = 0; i < args->batch_size; ++i) {
         args->mpt_index = allocResc(HanGuRnicDef::ICMTYPE_MPT, mptMeta);
         DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MPT: mpt_index %d batch_size %d\n", args->mpt_index, args->batch_size);
@@ -591,7 +612,7 @@ void NicCtrl::allocMpt(TypedBufferArg<kfd_ioctl_alloc_mpt_args> &args) {
     args->mpt_index -= (args->batch_size - 1);
 }
 
-void NicCtrl::writeMpt(TypedBufferArg<kfd_ioctl_write_mpt_args> &args) {
+void NicCtrl::writeMpt(struct kfd_ioctl_write_mpt_args *args) {
     // put MptResc into mailbox
     HanGuRnicDef::MptResc mptResc[MAX_MR_BATCH];
     for (uint32_t i = 0; i < args->batch_size; ++i) {
@@ -611,11 +632,11 @@ void NicCtrl::writeMpt(TypedBufferArg<kfd_ioctl_write_mpt_args> &args) {
 
 
 /* -------------------------- CQC {begin} ------------------------ */
-void NicCtrl::allocCqc(TypedBufferArg<kfd_ioctl_alloc_cq_args> &args) {
+void NicCtrl::allocCqc(struct kfd_ioctl_alloc_cq_args *args) {
     args->cq_num = allocResc(HanGuRnicDef::ICMTYPE_CQC, cqcMeta);
 }
 
-void NicCtrl::writeCqc(TypedBufferArg<kfd_ioctl_write_cqc_args> &args) {
+void NicCtrl::writeCqc(struct kfd_ioctl_write_cqc_args *args) {
     /* put CqcResc into mailbox */
     HanGuRnicDef::CqcResc cqcResc;
     cqcResc.cqn    = args->cq_num  ;
@@ -629,7 +650,7 @@ void NicCtrl::writeCqc(TypedBufferArg<kfd_ioctl_write_cqc_args> &args) {
 
 
 /* -------------------------- QPC {begin} ------------------------ */
-void NicCtrl::allocQpc(TypedBufferArg<kfd_ioctl_alloc_qp_args> &args) {
+void NicCtrl::allocQpc(struct kfd_ioctl_alloc_qp_args *args) {
     for (uint32_t i = 0; i < args->batch_size; ++i) {
         // DPRINTF(NicCtrl, " allocQpc: qpc_bitmap: 0x%x 0x%x 0x%x\n", qpcMeta.bitmap[0], qpcMeta.bitmap[1], qpcMeta.bitmap[2]);
         args->qp_num = allocResc(HanGuRnicDef::ICMTYPE_QPC, qpcMeta);
@@ -645,7 +666,7 @@ void NicCtrl::allocQpc(TypedBufferArg<kfd_ioctl_alloc_qp_args> &args) {
     args->qp_num -= (args->batch_size - 1);
 }
 
-void NicCtrl::writeQpc(TypedBufferArg<kfd_ioctl_write_qpc_args> &args) {
+void NicCtrl::writeQpc(struct kfd_ioctl_write_qpc_args *args) {
     /* put QpcResc into mailbox */
     HanGuRnicDef::QpcResc qpcResc[MAX_QPC_BATCH]; // = (HanGuRnicDef::QpcResc *)mailbox.vaddr;
     memset(qpcResc, 0, sizeof(HanGuRnicDef::QpcResc) * args->batch_size);
