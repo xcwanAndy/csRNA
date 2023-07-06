@@ -195,6 +195,89 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
     return mr;
 }
 
+struct ibv_mr* Ibv::ibv_reg_batch_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr, uint32_t batch_size) {
+    DPRINTF(Ibv, " ibv_reg_batch_mr!\n");
+    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    struct ibv_mr *mr =  (struct ibv_mr *)malloc(sizeof(struct ibv_mr) * batch_size);
+
+    uint32_t batch_cnt = 0;
+    uint32_t batch_left = batch_size;
+    struct kfd_ioctl_init_mtt_args *mtt_args =
+                (struct kfd_ioctl_init_mtt_args *)malloc(sizeof(struct kfd_ioctl_init_mtt_args));
+    struct kfd_ioctl_alloc_mpt_args *mpt_alloc_args =
+                (struct kfd_ioctl_alloc_mpt_args *)malloc(sizeof(struct kfd_ioctl_alloc_mpt_args));
+    struct kfd_ioctl_write_mpt_args *mpt_args =
+                (struct kfd_ioctl_write_mpt_args *)malloc(sizeof(struct kfd_ioctl_write_mpt_args));
+    while (batch_left > 0) {
+        uint32_t sub_bsz = 0;
+        sub_bsz = (batch_left > MAX_MR_BATCH) ? MAX_MR_BATCH : batch_left;
+
+        /* Init (Allocate and write) MTT */
+        for (uint32_t i = 0; i < sub_bsz; ++i) {
+            /* Calc needed number of pages */
+            mr[batch_cnt + i].num_mtt = (mr_attr->length >> 12) + (mr_attr->length & 0xFFF) ? 1 : 0;
+            assert(mr[batch_cnt + i].num_mtt == 1);
+
+            /* !TODO: Now, we require allocated memory's start
+            * vaddr is at the boundry of one page */
+            //mr[batch_cnt + i].addr   = memalign(PAGE_SIZE, mr_attr->length);
+            /* Allloc memory using new api */
+            mr[batch_cnt + i].addr = (uint8_t *)memAlloc->allocMem((Addr)mr_attr->length).vaddr.start();
+            memset(mr[batch_cnt + i].addr, 0, mr_attr->length);
+            mr[batch_cnt + i].ctx = context;
+            mr[batch_cnt + i].flag   = mr_attr->flag;
+            mr[batch_cnt + i].length = mr_attr->length;
+
+            mr[batch_cnt + i].mtt    = (struct ibv_mtt *)malloc(sizeof(struct ibv_mtt) * mr->num_mtt);
+            mr[batch_cnt + i].mtt[0].vaddr = (void *)(mr[batch_cnt + i].addr);
+
+            mtt_args->vaddr[i] = (uint8_t *) mr[batch_cnt + i].mtt[0].vaddr;
+            mtt_args->paddr[i] = memAlloc->getPhyAddr((Addr)mtt_args->vaddr[i]);
+        }
+        mtt_args->batch_size = sub_bsz;
+        write_cmd(HGKFD_IOC_ALLOC_MTT, (void *)mtt_args);
+        for (uint32_t i = 0; i < sub_bsz; ++i) {
+            mr[batch_cnt + i].mtt[0].mtt_index = mtt_args->mtt_index + i;
+            mr[batch_cnt + i].mtt[0].paddr = mtt_args->paddr[i];
+        }
+        mtt_args->batch_size = sub_bsz;
+        write_cmd(HGKFD_IOC_WRITE_MTT, (void *)mtt_args);
+
+        /* Allocate MPT */
+        mpt_alloc_args->batch_size = sub_bsz;
+        write_cmd(HGKFD_IOC_ALLOC_MPT, (void *)mpt_alloc_args);
+        for (uint32_t i = 0; i < sub_bsz; ++i) {
+            mr[batch_cnt + i].lkey = mpt_alloc_args->mpt_index + i;
+            assert(mr[batch_cnt + i].lkey == mr[batch_cnt + i].mtt->mtt_index);
+            // HGRNIC_PRINT(" ibv_reg_batch_mr: mpt_idx 0x%x mtt_idx 0x%x\n", mr[batch_cnt + i].lkey, mr[batch_cnt + i].mtt->mtt_index);
+        }
+
+        /* Write MPT */
+        mpt_args->batch_size = sub_bsz;
+        for (uint32_t i = 0; i < sub_bsz; ++i) {
+            mpt_args->flag[i]      = mr[batch_cnt + i].flag;
+            mpt_args->addr[i]      = (uint64_t) mr[batch_cnt + i].addr;
+            mpt_args->length[i]    = mr[batch_cnt + i].length;
+            mpt_args->mtt_index[i] = mr[batch_cnt + i].mtt[0].mtt_index;
+            mpt_args->mpt_index[i] = mr[batch_cnt + i].lkey;
+        }
+        write_cmd(HGKFD_IOC_WRITE_MPT, (void *)mpt_args);
+
+        /* update finished  */
+        batch_left -= sub_bsz;
+        batch_cnt += sub_bsz;
+        assert(batch_cnt + batch_left == batch_size);
+    }
+    free(mtt_args);
+    free(mpt_alloc_args);
+    free(mpt_args);
+
+    DPRINTF(Ibv, " ibv_reg_batch_mr!: out!\n");
+    return mr;
+}
+
+
+
 struct ibv_cq* Ibv::ibv_create_cq(struct ibv_context *context, struct ibv_cq_init_attr *cq_attr) {
 
     DPRINTF(Ibv, " enter ibv_create_cq!\n");
@@ -229,5 +312,144 @@ struct ibv_cq* Ibv::ibv_create_cq(struct ibv_context *context, struct ibv_cq_ini
     write_cmd(HGKFD_IOC_WRITE_CQC, (void *)write_cqc_args);
     free(write_cqc_args);
     return cq;
+}
+
+/**
+ * @note Now, SQ and RQ has their own MR respectively.
+ */
+struct ibv_qp* Ibv::ibv_create_qp(struct ibv_context *context, struct ibv_qp_create_attr *qp_attr) {
+
+    DPRINTF(Ibv, " enter ibv_create_qp!\n");
+
+    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    struct ibv_qp *qp = (struct ibv_qp *)malloc(sizeof(struct ibv_qp));
+    memset(qp, 0, sizeof(struct ibv_qp));
+
+    // allocate QP
+    struct kfd_ioctl_alloc_qp_args *qp_args =
+            (struct kfd_ioctl_alloc_qp_args *)malloc(sizeof(struct kfd_ioctl_alloc_qp_args));
+    qp_args->batch_size = 1;
+    write_cmd(HGKFD_IOC_ALLOC_QP, (void *)qp_args);
+    qp->qp_num = qp_args->qp_num;
+    DPRINTF(Ibv, " Get out of HGKFD_IOC_ALLOC_QP! qpn is : 0x%x\n", qp->qp_num);
+    free(qp_args);
+
+    // Init (Allocate and write) SQ MTT && MPT
+    struct ibv_mr_init_attr *mr_attr =
+            (struct ibv_mr_init_attr *)malloc(sizeof(struct ibv_mr_init_attr));
+    mr_attr->flag   = MR_FLAG_WR | MR_FLAG_LOCAL;
+    mr_attr->length = (1 << qp_attr->sq_size_log); // !TODO: Now the size is a fixed number of 1 page
+    qp->snd_mr = ibv_reg_mr(context, mr_attr);
+
+    // Init (Allocate and write) RQ MTT && MPT
+    mr_attr->flag   = MR_FLAG_WR | MR_FLAG_LOCAL;
+    mr_attr->length = (1 << qp_attr->rq_size_log); // !TODO: Now the size is a fixed number of 1 page
+    qp->rcv_mr = ibv_reg_mr(context, mr_attr);
+    DPRINTF(Ibv, " Get out of ibv_reg_mr in create_qp! qpn is : 0x%x\n", qp->qp_num);
+    free(mr_attr);
+
+    return qp;
+}
+
+/**
+ * @note Allocate a batch of QP, with conntinuous qpn and the same qp_attr
+ */
+struct ibv_qp* Ibv::ibv_create_batch_qp(struct ibv_context *context, struct ibv_qp_create_attr *qp_attr, uint32_t batch_size) {
+
+    DPRINTF(Ibv, " enter ibv_create_batch_qp!\n");
+
+    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    struct ibv_qp *qp = (struct ibv_qp *)malloc(sizeof(struct ibv_qp) * batch_size);
+    memset(qp, 0, sizeof(struct ibv_qp));
+
+    /* allocate QP */
+    uint32_t batch_cnt = 0;
+    uint32_t batch_left = batch_size;
+    struct kfd_ioctl_alloc_qp_args *qp_args =
+            (struct kfd_ioctl_alloc_qp_args *)malloc(sizeof(struct kfd_ioctl_alloc_qp_args));
+    while (batch_left > 0) {
+
+        uint32_t sub_bsz = (batch_left > MAX_QPC_BATCH) ? MAX_QPC_BATCH : batch_left;
+
+        qp_args->batch_size = sub_bsz;
+        write_cmd(HGKFD_IOC_ALLOC_QP, (void *)qp_args);
+        for (uint32_t i = 0; i < sub_bsz; ++i) {
+            qp[batch_cnt + i].qp_num = qp_args->qp_num + i;
+            // HGRNIC_PRINT(" Get out of HGKFD_IOC_ALLOC_QP! the %d-th qp, qpn is : 0x%x(%d)\n", batch_cnt + i, qp[batch_cnt + i].qp_num, qp[batch_cnt + i].qp_num&RESC_LIM_MASK);
+        }
+
+        batch_cnt  += sub_bsz;
+        batch_left -= sub_bsz;
+        assert(batch_cnt + batch_left == batch_size);
+    }
+    free(qp_args);
+
+    // Init (Allocate and write) QP MTT && MPT
+    struct ibv_mr_init_attr *mr_attr = 
+            (struct ibv_mr_init_attr *)malloc(sizeof(struct ibv_mr_init_attr));
+    mr_attr->flag   = MR_FLAG_WR | MR_FLAG_LOCAL;
+    mr_attr->length = (1 << qp_attr->sq_size_log); // !TODO: Now the size is a fixed number of 1 page
+    struct ibv_mr *tmp_mr = ibv_reg_batch_mr(context, mr_attr, batch_size * 2);
+
+    for (uint32_t i = 0; i < batch_size; ++i) {
+        qp[i].rcv_mr = &(tmp_mr[2 * i]);
+        qp[i].snd_mr = &(tmp_mr[2 * i + 1]);
+        DPRINTF(Ibv, " Get out of ibv_reg_batch_mr in create_qp! qpn is : 0x%x rcv_mr 0x%x snd_mr 0x%x\n", 
+                qp[i].qp_num, qp[i].rcv_mr->lkey, qp[i].snd_mr->lkey);
+    }
+    free(mr_attr);
+
+    return qp;
+}
+
+
+
+int Ibv::ibv_modify_batch_qp(struct ibv_context *context, struct ibv_qp *qp, uint32_t batch_size) {
+    DPRINTF(Ibv, " enter ibv_modify_batch_qp!\n");
+    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+
+    /* write QP */
+    struct kfd_ioctl_write_qpc_args *qpc_args =
+            (struct kfd_ioctl_write_qpc_args *)malloc(sizeof(struct kfd_ioctl_write_qpc_args));
+    memset(qpc_args, 0, sizeof(struct kfd_ioctl_write_qpc_args));
+    uint32_t batch_cnt = 0;
+    uint32_t batch_left = batch_size;
+    while (batch_left > 0) {
+
+        uint32_t sub_bsz = (batch_left > MAX_QPC_BATCH) ? MAX_QPC_BATCH : batch_left;
+        DPRINTF(Ibv, " ibv_modify_batch_qp! batch_cnt %d batch_left %d sub_bsz %d\n", batch_cnt, batch_left, sub_bsz);
+
+        qpc_args->batch_size = sub_bsz;
+        for (int i = 0; i < sub_bsz; ++i) {
+            qpc_args->flag    [i] = qp[batch_cnt + i].flag;
+            qpc_args->type    [i] = qp[batch_cnt + i].type;
+            qpc_args->llid    [i] = qp[batch_cnt + i].lsubnet.llid;
+            qpc_args->dlid    [i] = qp[batch_cnt + i].dsubnet.dlid;
+            qpc_args->src_qpn [i] = qp[batch_cnt + i].qp_num;
+            qpc_args->dest_qpn[i] = qp[batch_cnt + i].dest_qpn;
+            qpc_args->snd_psn [i] = qp[batch_cnt + i].snd_psn;
+            qpc_args->ack_psn [i] = qp[batch_cnt + i].ack_psn;
+            qpc_args->exp_psn [i] = qp[batch_cnt + i].exp_psn;
+            qpc_args->cq_num  [i] = qp[batch_cnt + i].cq->cq_num;
+            qpc_args->snd_wqe_base_lkey[i] = qp[batch_cnt + i].snd_mr->lkey;
+            qpc_args->rcv_wqe_base_lkey[i] = qp[batch_cnt + i].rcv_mr->lkey;
+            qpc_args->snd_wqe_offset   [i] = qp[batch_cnt + i].snd_wqe_offset;
+            qpc_args->rcv_wqe_offset   [i] = qp[batch_cnt + i].rcv_wqe_offset;
+            qpc_args->qkey       [i] = qp[batch_cnt + i].qkey;
+            qpc_args->sq_size_log[i] = PAGE_SIZE_LOG; // qp->snd_mr->length;
+            qpc_args->rq_size_log[i] = PAGE_SIZE_LOG; // qp->rcv_mr->length;
+
+            // HGRNIC_PRINT(" ibv_modify_batch_qp! qpn 0x%x\n", qp[batch_cnt + i].qp_num);
+        }
+        write_cmd(HGKFD_IOC_WRITE_QPC, qpc_args);
+
+        batch_cnt  += sub_bsz;
+        batch_left -= sub_bsz;
+        assert(batch_cnt + batch_left == batch_size);
+    }
+    free(qpc_args);
+
+    DPRINTF(Ibv, " ibv_modify_batch_qp: out!\n");
+    return 0;
 }
 

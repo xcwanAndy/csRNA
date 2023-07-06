@@ -234,9 +234,9 @@ int NicCtrl::nicCtrl() {
             writeQpc(args);
         }
         break;
-      case HGKFD_IOC_CHECK_GO: 
-        {   
-            /* We don't check `go` bit here, cause it 
+      case HGKFD_IOC_CHECK_GO:
+        {
+            /* We don't check `go` bit here, cause it
              * has been checked at the beginning of ioctl. */
             // DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_CHECK_GO, `GO` is cleared.\n");
         }
