@@ -120,7 +120,7 @@ class NicCtrl : public PciDevice {
         int nicCtrl(unsigned req, Addr ioc_buf);
         EventFunctionWrapper nicCtrlEvent;
         unsigned nicCtrlReq;
-        Addr ioc_buf;
+        void * ioc_buf;
 
         // PIO Interface
         Tick writeConfig(PacketPtr pkt) override;

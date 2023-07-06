@@ -31,7 +31,6 @@
 #include <list>
 
 #include "base/addr_range.hh"
-#include "dev/rdma/hangu_rnic_defs.hh"
 #include "dev/rdma/hangu_rnic.hh"
 #include "dev/rdma/kfd_ioctl.h"
 #include "dev/xdr/nic_ctrl.hh"
@@ -66,16 +65,18 @@ extern uint32_t num_client;
 /* -------Interact with device{begin}------- */
 /**
  * All the code in this block needs to hold 
- * consistance with hanggu_rnic_def.hh
+ * consistance with hangu_rnic_def.hh
  */
 
+/* Duplicate with hangu_rnic_def
+ */
 // We just implement RC and UD
-enum ibv_qp_type {
-    QP_TYPE_RC = (uint8_t)0x00,
-    QP_TYPE_UC = (uint8_t)0x01,
-    QP_TYPE_RD = (uint8_t)0x02,
-    QP_TYPE_UD = (uint8_t)0x03
-};
+//enum ibv_qp_type {
+    //QP_TYPE_RC = (uint8_t)0x00,
+    //QP_TYPE_UC = (uint8_t)0x01,
+    //QP_TYPE_RD = (uint8_t)0x02,
+    //QP_TYPE_UD = (uint8_t)0x03
+//};
 
 enum ibv_mr_flag {
     MR_FLAG_RD     = (1 << 0),
@@ -387,6 +388,8 @@ class Ibv : public SimObject{
 
         Ibv(const Params *params);
         ~Ibv();
+
+        MemAllocator *memAlloc;
 
         void wait(uint32_t n);
         uint8_t write_cmd(unsigned long request, void *args);

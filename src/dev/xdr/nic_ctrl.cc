@@ -583,7 +583,7 @@ void NicCtrl::allocMtt(struct kfd_ioctl_init_mtt_args *args) {
         DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: mtt_index: %d\n", args->mtt_index);
         /* TODO: The vaddr and paddr mappings should be done when allocating
          */
-        process->pTable->translate((Addr)args->vaddr[i], (Addr &)args->paddr[i]);
+        //process->pTable->translate((Addr)args->vaddr[i], (Addr &)args->paddr[i]);
         DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT: vaddr: 0x%lx, paddr: 0x%lx mtt_index %d\n",
                 (uint64_t)args->vaddr[i], (uint64_t)args->paddr[i], args->mtt_index);
     }
