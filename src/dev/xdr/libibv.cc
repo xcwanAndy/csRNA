@@ -403,6 +403,37 @@ struct ibv_qp* Ibv::ibv_create_batch_qp(struct ibv_context *context, struct ibv_
 }
 
 
+int Ibv::ibv_modify_qp(struct ibv_context *context, struct ibv_qp *qp) {
+    DPRINTF(Ibv, " enter ibv_modify_qp!\n");
+    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+
+    /* write QP */
+    struct kfd_ioctl_write_qpc_args *qpc_args =
+            (struct kfd_ioctl_write_qpc_args *)malloc(sizeof(struct kfd_ioctl_write_qpc_args));
+    memset(qpc_args, 0, sizeof(struct kfd_ioctl_write_qpc_args));
+    qpc_args->batch_size = 1;
+    qpc_args->flag    [0] = qp->flag;
+    qpc_args->type    [0] = qp->type;
+    qpc_args->llid    [0] = qp->lsubnet.llid;
+    qpc_args->dlid    [0] = qp->dsubnet.dlid;
+    qpc_args->src_qpn [0] = qp->qp_num;
+    qpc_args->dest_qpn[0] = qp->dest_qpn;
+    qpc_args->snd_psn [0] = qp->snd_psn;
+    qpc_args->ack_psn [0] = qp->ack_psn;
+    qpc_args->exp_psn [0] = qp->exp_psn;
+    qpc_args->cq_num  [0] = qp->cq->cq_num;
+    qpc_args->snd_wqe_base_lkey[0] = qp->snd_mr->lkey;
+    qpc_args->rcv_wqe_base_lkey[0] = qp->rcv_mr->lkey;
+    qpc_args->snd_wqe_offset   [0] = qp->snd_wqe_offset;
+    qpc_args->rcv_wqe_offset   [0] = qp->rcv_wqe_offset;
+    qpc_args->qkey       [0] = qp->qkey;
+    qpc_args->sq_size_log[0] = PAGE_SIZE_LOG; // qp->snd_mr->length;
+    qpc_args->rq_size_log[0] = PAGE_SIZE_LOG; // qp->rcv_mr->length;
+    write_cmd(HGKFD_IOC_WRITE_QPC, qpc_args);
+    free(qpc_args);
+    return 0;
+}
+
 
 int Ibv::ibv_modify_batch_qp(struct ibv_context *context, struct ibv_qp *qp, uint32_t batch_size) {
     DPRINTF(Ibv, " enter ibv_modify_batch_qp!\n");
