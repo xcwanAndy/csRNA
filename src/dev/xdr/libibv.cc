@@ -484,3 +484,144 @@ int Ibv::ibv_modify_batch_qp(struct ibv_context *context, struct ibv_qp *qp, uin
     return 0;
 }
 
+/**
+ * @note    Post Send (Send/RDMA Write/RDMA Read) request (list) to hardware.
+ *          Support any number of WQE posted.
+ *
+ */
+int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct ibv_qp *qp, uint8_t num) {
+    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    volatile uint64_t *doorbell;
+    volatile Addr doorbell_addr = dvr->doorbell;
+
+    struct send_desc *tx_desc;
+    uint16_t sq_head = qp->snd_wqe_offset;
+    uint8_t first_trans_type = wqe[0].trans_type;
+    int snd_cnt = 0;
+    for (int i = 0; i < num; ++i) {
+        /* Get send Queue */
+        tx_desc = (struct send_desc *) (qp->snd_mr->addr + qp->snd_wqe_offset);
+
+        /* Add Base unit */
+        // tx_desc->opcode = (i == num - 1) ? IBV_TYPE_NULL : wqe[i+1].trans_type;
+        tx_desc->flags  = 0;
+        tx_desc->flags  = wqe[i].flag;
+        tx_desc->opcode = wqe[i].trans_type;
+
+        /* Add data unit */
+        tx_desc->len = wqe[i].length;
+        tx_desc->lkey = wqe[i].mr->lkey;
+        tx_desc->lVaddr = (uint64_t)wqe[i].mr->addr + wqe[i].offset;
+
+        /* Add RDMA unit */
+        if (wqe[i].trans_type == IBV_TYPE_RDMA_WRITE ||
+            wqe[i].trans_type == IBV_TYPE_RDMA_READ) {
+            tx_desc->rdma_type.rkey = wqe[i].rdma.rkey;
+            tx_desc->rdma_type.rVaddr_h = wqe[i].rdma.raddr >> 32;
+            tx_desc->rdma_type.rVaddr_l = wqe[i].rdma.raddr & 0xffffffff;
+        }
+
+        /* Add UD Send unit */
+        if (wqe[i].trans_type == IBV_TYPE_SEND &&
+            qp->type == QP_TYPE_UD) {
+            tx_desc->send_type.dest_qpn = wqe[i].send.dqpn;
+            tx_desc->send_type.dlid = wqe[i].send.dlid;
+            tx_desc->send_type.qkey = wqe[i].send.qkey;
+        }
+
+        /* update send queue */
+        ++snd_cnt;
+        qp->snd_wqe_offset += sizeof(struct send_desc);
+        if (qp->snd_wqe_offset + sizeof(struct send_desc) > qp->snd_mr->length) { /* In case the remaining space
+                                                                                    * is not enough for one descriptor. */
+            /* Post send doorbell */
+            // tx_desc->opcode  = IBV_TYPE_NULL;
+            uint32_t db_low  = (sq_head << 4) | first_trans_type;
+            uint32_t db_high = (qp->qp_num << 8) | snd_cnt;
+            *doorbell = ((uint64_t)db_high << 32) | db_low;
+            nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)doorbell);
+
+            sq_head = 0;
+            first_trans_type = (i == num - 1) ? IBV_TYPE_NULL : wqe[i+1].trans_type;
+            snd_cnt = 0;
+            qp->snd_wqe_offset = 0; /* SQ MR is allocated in page, so
+                                     * the start address (offset) is 0 */
+
+            // HGRNIC_PRINT(" 1db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
+        }
+
+        // uint8_t *u8_tmp = (uint8_t *)tx_desc;
+        // for (int i = 0; i < sizeof(struct send_desc); ++i) {
+        //     HGRNIC_PRINT(" data[%d] 0x%x\n", i, u8_tmp[i]);
+        // }
+    }
+
+    if (snd_cnt) {
+        /* Post send doorbell */
+        uint32_t db_low  = (sq_head << 4) | first_trans_type;
+        uint32_t db_high = (qp->qp_num << 8) | snd_cnt;
+        *doorbell = ((uint64_t)db_high << 32) | db_low;
+        nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)doorbell);
+
+        // HGRNIC_PRINT(" db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
+    }
+
+    return 0;
+}
+
+int Ibv::ibv_post_recv(struct ibv_context *context, struct ibv_wqe *wqe, struct ibv_qp *qp, uint8_t num) {
+    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    // struct Doorbell *boorbell = dvr->doorbell;
+
+    struct recv_desc *rx_desc;
+
+    for (int i = 0; i < num; ++i) {
+        /* Get Receive Queue */
+        rx_desc = (struct recv_desc *) (qp->rcv_mr->addr + qp->rcv_wqe_offset);
+
+        /* Add basic element */
+        rx_desc->len = wqe[i].length;
+        rx_desc->lkey = wqe[i].mr->lkey;
+        rx_desc->lVaddr = (uint64_t)wqe[i].mr->addr + wqe[i].offset;
+
+        // HGRNIC_PRINT(" len is %d, lkey is %d, lvaddr is 0x%lx\n", rx_desc->len, rx_desc->lkey, rx_desc->lVaddr);
+
+        /* update Receive Queue */
+        qp->rcv_wqe_offset += sizeof(struct recv_desc);
+        if (qp->rcv_wqe_offset  + sizeof(struct recv_desc) > qp->rcv_mr->length) { /* In case the remaining space
+                                                                                   * is not enough for one descriptor. */
+            qp->rcv_wqe_offset = 0; /* RQ MR is allocated in page, so
+                                     * the start address (offset) is 0 */
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * @note Poll at most 100 cpl one time
+ * 
+ */
+int Ibv::ibv_poll_cpl(struct ibv_cq *cq, struct cpl_desc **desc, int max_num) {
+    int cnt = 0;
+
+    for (cnt = 0; cnt < max_num; ++cnt) {
+        struct cpl_desc *cq_desc = (struct cpl_desc *)(cq->mr->addr + cq->offset);
+        if (cq_desc->byte_cnt != 0) {
+            memcpy(desc[cnt], cq_desc, sizeof(struct cpl_desc));
+            // memset(cq_desc, 0, sizeof(struct cpl_desc));
+            cq_desc->byte_cnt = 0; /* clear CQ cpl */
+
+            /* Update offset */
+            ++cq->cpl_cnt;
+            cq->offset += sizeof(struct cpl_desc);
+            if (cq->offset + sizeof(struct cpl_desc) > cq->mr->length) {
+                cq->offset = 0;
+            }
+        } else {
+            break;
+        }
+    }
+
+    return cnt;
+}
