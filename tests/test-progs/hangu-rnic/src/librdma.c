@@ -258,7 +258,7 @@ int rdma_connect(struct rdma_resc *resc, struct rdma_cr *cr_info, uint16_t *dest
     while (i < cm_req_num) {
         cnt = 0;
         while (i + cnt < cm_req_num) {
-            if (cnt == SND_WR_MAX) { /* in case that post send 
+            if (cnt == SND_WR_MAX) { /* in case that post send
                                       * cm req surpass specified */
                 break;
             } else if (dest_info[cnt + i] == dest_info[i]) {
@@ -274,7 +274,7 @@ int rdma_connect(struct rdma_resc *resc, struct rdma_cr *cr_info, uint16_t *dest
         cm_post_send(ctx, &(cr_info[i]), cnt, dest_info[i]);
         i += cnt;
     }
-    
+
 }
 
 /**

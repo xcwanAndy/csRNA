@@ -33,8 +33,14 @@ class Ibv(SimObject):
     type = 'Ibv'
     cxx_header = "dev/xdr/libibv.hh"
 
-    nicCtrl = NicCtrl("Nic Controller")
+    nicCtrl = Param.NicCtrl("Nic Controller")
 
+
+class IbvTest(SimObject):
+    type = 'IbvTest'
+    cxx_header = "dev/xdr/ibv_test.hh"
+
+    ibv = Param.Ibv("IB Verbs")
 
 
 class NicCtrl(PciDevice):
