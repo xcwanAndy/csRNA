@@ -36,8 +36,7 @@ Source('ibv_test.cc')
 
 
 DebugFlag('NicCtrl')
-DebugFlag('PioEngine')
 DebugFlag('Ibv')
 DebugFlag('IbvTest')
 
-CompoundFlag('XDR', ['NicCtrl', 'PioEngine', 'Ibv', 'IbvTest'])
+CompoundFlag('XDR', ['NicCtrl', 'Ibv', 'IbvTest'])

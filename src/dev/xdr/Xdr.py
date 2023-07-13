@@ -26,21 +26,7 @@ from m5.proxy import *
 from m5.objects.PciDevice import PciDevice
 from m5.objects.Ethernet import *
 from m5.objects.Process import EmulatedDriver
-from m5.objects.HanGuRnic import HanGuRnic
-from m5.objects.NicCtrl import NicCtrl
-
-class Ibv(SimObject):
-    type = 'Ibv'
-    cxx_header = "dev/xdr/libibv.hh"
-
-    nicCtrl = Param.NicCtrl("Nic Controller")
-
-
-class IbvTest(SimObject):
-    type = 'IbvTest'
-    cxx_header = "dev/xdr/ibv_test.hh"
-
-    ibv = Param.Ibv("IB Verbs")
+from m5.objects.Rnic import HanGuRnic
 
 
 class NicCtrl(PciDevice):
@@ -49,7 +35,9 @@ class NicCtrl(PciDevice):
 
     interface = EtherInt("Ethernet Interface")
 
-    rnic = HanGuRnic("HanGu Rnic")
+    # rnic = HanGuRnic(pci_bus=0, pci_dev=0, pci_func=0)
+    # rnic as a parameter
+    rnic = Param.HanGuRnic("HanGu Rnic")
 
     mpt_cache_num = Param.Int(40000,
         "Number of mpt cache enteries")
@@ -92,3 +80,14 @@ class NicCtrl(PciDevice):
 
     link_delay = Param.Latency('1us', "ethernet link delay")
     cpu_num    = Param.Int(10, "Number of CPUs in this node")
+
+class Ibv(SimObject):
+    type = 'Ibv'
+    cxx_header = "dev/xdr/libibv.hh"
+    nicCtrl = Param.NicCtrl("Rnic Controller")
+
+
+class IbvTest(SimObject):
+    type = 'IbvTest'
+    cxx_header = "dev/xdr/ibv_test.hh"
+    ibv = Param.Ibv("IB Verbs")

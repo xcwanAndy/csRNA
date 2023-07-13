@@ -171,10 +171,13 @@ struct QpcResc {
     uint32_t qkey;
     uint32_t reserved[52];
 };
-const uint8_t QP_TYPE_RC = 0x00;
-const uint8_t QP_TYPE_UC = 0x01;
-const uint8_t QP_TYPE_RD = 0x02;
-const uint8_t QP_TYPE_UD = 0x03;
+
+enum ibv_qp_type {
+    QP_TYPE_RC = 0x00,
+    QP_TYPE_UC = 0x01,
+    QP_TYPE_RD = 0x02,
+    QP_TYPE_UD = 0x03
+};
 
 // WRITE_CQ
 struct CqcResc {

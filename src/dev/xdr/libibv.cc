@@ -45,7 +45,7 @@
 
 Ibv::Ibv(const Params *p)
     : SimObject(p),
-    nicCtrl(&p->nicCtrl){
+    nicCtrl(p->nicCtrl){
         DPRINTF(Ibv, " Initializing Ibv");
         memAlloc = nicCtrl->getMemAlloc();
     }
@@ -87,7 +87,7 @@ int Ibv::ibv_open_device(struct ibv_context *context, uint16_t lid) {
     /* get doorbell from nic controller */
     dvr->doorbell = nicCtrl->getDoorbell();
     dvr->sync = (Addr)((uint64_t)dvr->doorbell + 8);
-    DRPINTF(Ibv, " get dvr->doorbell 0x%lx\n", (uint64_t)dvr->doorbell);
+    DPRINTF(Ibv, " get dvr->doorbell 0x%lx\n", (uint64_t)dvr->doorbell);
 
     /* Init ICM */
     struct kfd_ioctl_init_dev_args *args = 
@@ -102,7 +102,7 @@ int Ibv::ibv_open_device(struct ibv_context *context, uint16_t lid) {
     /* Init communication management */
     struct ibv_mr_init_attr mr_attr;
     mr_attr.length = PAGE_SIZE;
-    mr_attr.flag = MR_FLAG_RD | MR_FLAG_WR | MR_FLAG_LOCAL;
+    mr_attr.flag = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_WR | MR_FLAG_LOCAL);
     context->cm_mr = ibv_reg_mr(context, &mr_attr);
 
     struct ibv_cq_init_attr cq_attr;
@@ -297,7 +297,7 @@ struct ibv_cq* Ibv::ibv_create_cq(struct ibv_context *context, struct ibv_cq_ini
     /* Init (Allocate and write) MTT && MPT */
     struct ibv_mr_init_attr *mr_attr =
             (struct ibv_mr_init_attr *)malloc(sizeof(struct ibv_mr_init_attr));
-    mr_attr->flag   = MR_FLAG_RD | MR_FLAG_LOCAL;
+    mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_LOCAL);
     mr_attr->length = (1 << cq_attr->size_log); // (PAGE_SIZE << 2); // !TODO: Now the size is a fixed number of 1 page
     cq->mr = ibv_reg_mr(context, mr_attr);
     free(mr_attr);
@@ -337,12 +337,12 @@ struct ibv_qp* Ibv::ibv_create_qp(struct ibv_context *context, struct ibv_qp_cre
     // Init (Allocate and write) SQ MTT && MPT
     struct ibv_mr_init_attr *mr_attr =
             (struct ibv_mr_init_attr *)malloc(sizeof(struct ibv_mr_init_attr));
-    mr_attr->flag   = MR_FLAG_WR | MR_FLAG_LOCAL;
+    mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_WR | MR_FLAG_LOCAL);
     mr_attr->length = (1 << qp_attr->sq_size_log); // !TODO: Now the size is a fixed number of 1 page
     qp->snd_mr = ibv_reg_mr(context, mr_attr);
 
     // Init (Allocate and write) RQ MTT && MPT
-    mr_attr->flag   = MR_FLAG_WR | MR_FLAG_LOCAL;
+    mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_WR | MR_FLAG_LOCAL);
     mr_attr->length = (1 << qp_attr->rq_size_log); // !TODO: Now the size is a fixed number of 1 page
     qp->rcv_mr = ibv_reg_mr(context, mr_attr);
     DPRINTF(Ibv, " Get out of ibv_reg_mr in create_qp! qpn is : 0x%x\n", qp->qp_num);
@@ -387,7 +387,7 @@ struct ibv_qp* Ibv::ibv_create_batch_qp(struct ibv_context *context, struct ibv_
     // Init (Allocate and write) QP MTT && MPT
     struct ibv_mr_init_attr *mr_attr = 
             (struct ibv_mr_init_attr *)malloc(sizeof(struct ibv_mr_init_attr));
-    mr_attr->flag   = MR_FLAG_WR | MR_FLAG_LOCAL;
+    mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_WR | MR_FLAG_LOCAL);
     mr_attr->length = (1 << qp_attr->sq_size_log); // !TODO: Now the size is a fixed number of 1 page
     struct ibv_mr *tmp_mr = ibv_reg_batch_mr(context, mr_attr, batch_size * 2);
 
@@ -624,4 +624,9 @@ int Ibv::ibv_poll_cpl(struct ibv_cq *cq, struct cpl_desc **desc, int max_num) {
     }
 
     return cnt;
+}
+
+/* This function is compulsory */
+Ibv * IbvParams::create() {
+    return new Ibv(this);
 }

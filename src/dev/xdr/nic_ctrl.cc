@@ -21,11 +21,9 @@
  *  Copyright (C) 2023 Xinyu Yang, HKUST.
  */
 
-#include "dev/xdr/nic_ctrl.hh"
-
-
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <memory>
 #include <queue>
 
@@ -36,13 +34,12 @@
 #include "debug/Drain.hh"
 #include "dev/net/etherpkt.hh"
 #include "debug/XDR.hh"
-#include "dev/pci/device.hh"
 #include "dev/rdma/kfd_ioctl.h"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
-#include "params/NicCtrl.hh"
 #include "sim/stats.hh"
 #include "sim/system.hh"
+#include "dev/xdr/nic_ctrl.hh"
 
 using namespace HanGuRnicDef;
 using namespace Net;
@@ -50,15 +47,9 @@ using namespace std;
 
 NicCtrl::NicCtrl(const Params *p)
     : PciDevice(p),
-    rnic(&p->rnic),
+    rnic(p->rnic),
     memAlloc(0xd300000000000000),
-    nicCtrlEvent([this]{ nicCtrl(); }, name()),
-    dmaReadDelay(p->dma_read_delay),
-    dmaWriteDelay(p->dma_write_delay),
-    pciBandwidth(p->pci_speed),
-    etherBandwidth(p->ether_speed),
-    LinkDelay     (p->link_delay),
-    ethRxPktProcEvent([this]{ ethRxPktProc(); }, name())
+    nicCtrlEvent([this]{ nicCtrl(); }, name())
 {
 
         DPRINTF(NicCtrl, " qpc_cache_cap %d  reorder_cap %d cpuNum 0x%x\n",
@@ -68,7 +59,7 @@ NicCtrl::NicCtrl(const Params *p)
         BARAddrs[0] = 0xd000000000000000;
 
         AddrRangeList addr_list = rnic->getAddrRanges();
-        AddrRange bar0 = addr_list.pop_front(); // Get BAR0
+        AddrRange bar0 = addr_list.front(); // Get BAR0
         hcrAddr = bar0.start();
 
         doorBell = hcrAddr + 0x18;
@@ -79,10 +70,6 @@ NicCtrl::~NicCtrl() {
 
 void NicCtrl::init() {
     PciDevice::init();
-}
-
-NicCtrl* HanGuRnicParams::create() {
-    return new NicCtrl(this);
 }
 
 
@@ -110,7 +97,7 @@ int NicCtrl::nicCtrl() {
 
     /* ioc_buf should be allocated by memAlloc
      */
-    Addr pAddr = memAlloc.getPhyAddr(ioc_buf);
+    Addr pAddr = memAlloc.getPhyAddr((Addr)ioc_buf);
 
     switch (nicCtrlReq) {
       case HGKFD_IOC_INIT_DEV: // Input
@@ -141,7 +128,7 @@ int NicCtrl::nicCtrl() {
             if (!isIcmMapped(mttMeta, last_mtt_index)) { /* last mtt index in this allocation */
                 DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT mtt not mapped\n");
                 Addr icmVPage = allocIcm (mttMeta, args->mtt_index);
-                writeIcm(HanGuRnicDef::ICMTYPE_MTT, mttMeta, icmVPage);
+                writeIcm(HanGuRnicDef::ICMTYPE_MTT, icmVPage);
                 DPRINTF(NicCtrl, " HGKFD_IOC_ALLOC_MTT mtt ICM mapping is written\n");
             }
         }
@@ -167,7 +154,7 @@ int NicCtrl::nicCtrl() {
             DPRINTF(NicCtrl, " get into ioctl HGKFD_IOC_ALLOC_MPT: mpt_start_index: %d\n", args->mpt_index);
             if (!isIcmMapped(mptMeta, args->mpt_index + args->batch_size - 1)) {
                 Addr icmVPage = allocIcm(mptMeta, args->mpt_index);
-                writeIcm(HanGuRnicDef::ICMTYPE_MPT, mptMeta, icmVPage);
+                writeIcm(HanGuRnicDef::ICMTYPE_MPT, icmVPage);
             }
         }
         break;
@@ -193,7 +180,7 @@ int NicCtrl::nicCtrl() {
 
             if (!isIcmMapped(cqcMeta, args->cq_num)) {
                 Addr icmVPage = allocIcm (cqcMeta, args->cq_num);
-                writeIcm(HanGuRnicDef::ICMTYPE_CQC, cqcMeta, icmVPage);
+                writeIcm(HanGuRnicDef::ICMTYPE_CQC, icmVPage);
             }
         }
         break;
@@ -219,7 +206,7 @@ int NicCtrl::nicCtrl() {
 
             if (!isIcmMapped(qpcMeta, args->qp_num + args->batch_size - 1)) {
                 Addr icmVPage = allocIcm (qpcMeta, args->qp_num);
-                writeIcm(HanGuRnicDef::ICMTYPE_QPC, qpcMeta, icmVPage);
+                writeIcm(HanGuRnicDef::ICMTYPE_QPC, icmVPage);
             }
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_ALLOC_QP, qp_num: 0x%x(%d), batch_size %d\n",
                     args->qp_num, RESC_LIM_MASK&args->qp_num, args->batch_size);
@@ -243,7 +230,7 @@ int NicCtrl::nicCtrl() {
         break;
       default:
         {
-            fatal("%s: bad ioctl %d\n", req);
+            fatal("%s: bad ioctl %d\n", "nicCtrl", nicCtrlReq);
         }
         break;
     }
@@ -290,15 +277,15 @@ Tick NicCtrl::read(PacketPtr pkt) {
 
     /* Handle read of register here.
      * Here we only implement read go bit */
-    if (daddr == (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode)) {/* Access `GO` bit */
-        pkt->setLE<uint32_t>(regs.cmdCtrl.go()<<31 | regs.cmdCtrl.op());
-    } else if (daddr == 0x20) {/* Access `sync` reg */
-        pkt->setLE<uint32_t>(syncSucc);
-    } else {
-        pkt->setLE<uint32_t>(0);
-    }
+    //if (daddr == (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode)) {[> Access `GO` bit <]
+        //pkt->setLE<uint32_t>(regs.cmdCtrl.go()<<31 | regs.cmdCtrl.op());
+    //} else if (daddr == 0x20) {[> Access `sync` reg <]
+        //pkt->setLE<uint32_t>(syncSucc);
+    //} else {
+        //pkt->setLE<uint32_t>(0);
+    //}
 
-    pkt->makeAtomicResponse();
+    //pkt->makeAtomicResponse();
     return pioDelay;
 }
 
@@ -320,70 +307,6 @@ Tick NicCtrl::write(PacketPtr pkt) {
         DPRINTF(PioEngine,
                 " PioEngine.write: HCR, inparam: 0x%x\n",
                 pkt->getLE<Hcr>().inParam_l);
-
-        regs.inParam.iparaml(pkt->getLE<Hcr>().inParam_l);
-        regs.inParam.iparamh(pkt->getLE<Hcr>().inParam_h);
-        regs.modifier = pkt->getLE<Hcr>().inMod;
-        regs.outParam.oparaml(pkt->getLE<Hcr>().outParam_l);
-        regs.outParam.oparamh(pkt->getLE<Hcr>().outParam_h);
-        regs.cmdCtrl = pkt->getLE<Hcr>().goOpcode;
-
-        /* Schedule CEU */
-        if (!ceuProcEvent.scheduled()) {
-            schedule(ceuProcEvent, curTick() + clockPeriod());
-        }
-
-    } else if (daddr == 0x18 && pkt->getSize() == sizeof(uint64_t)) {
-
-        /*  Used to Record start of time */
-        DPRINTF(NicCtrl,
-                " PioEngine.write: Doorbell, value %#X pio interval %ld\n",
-                pkt->getLE<uint64_t>(), curTick() - this->tick);
-
-        regs.db._data = pkt->getLE<uint64_t>();
-
-        DoorbellPtr dbell = make_shared<DoorbellFifo>(regs.db.opcode(),
-                regs.db.num(), regs.db.qpn(), regs.db.offset());
-        pio2ccuDbFifo.push(dbell);
-
-        /* Record last tick */
-        this->tick = curTick();
-
-        /* Schedule doorbellProc */
-        if (!doorbellProcEvent.scheduled()) {
-            schedule(doorbellProcEvent, curTick() + clockPeriod());
-        }
-
-        DPRINTF(NicCtrl, " PioEngine.write: qpn %d, opcode %x, num %d\n",
-                regs.db.qpn(), regs.db.opcode(), regs.db.num());
-    } else if (daddr == 0x20
-            && pkt->getSize() == sizeof(uint32_t)) {
-            /* latency sync */
-
-        DPRINTF(NicCtrl,
-                " PioEngine.write: sync bit, value %#X, syncCnt %d\n",
-                pkt->getLE<uint32_t>(), syncCnt);
-
-        if (pkt->getLE<uint32_t>() == 1) {
-            syncCnt += 1;
-            assert(syncCnt <= cpuNum);
-            if (syncCnt == cpuNum) {
-                syncSucc = 1;
-            }
-        } else {
-            assert(syncCnt > 0);
-            syncCnt -= 1;
-            if (syncCnt == 0) {
-                syncSucc = 0;
-            }
-        }
-
-        DPRINTF(NicCtrl,
-                " PioEngine.write: sync bit end, value %#X, syncCnt %d\n",
-                pkt->getLE<uint32_t>(), syncCnt);
-    } else {
-        panic("Write request to unknown address : %#x && size 0x%x\n",
-                daddr, pkt->getSize());
     }
 
     pkt->makeAtomicResponse();
@@ -399,7 +322,7 @@ uint8_t NicCtrl::checkHcr() {
     uint32_t goOp;
     // DPRINTF(NicCtrl, " Start read `GO`.\n");
     dmaRead(hcrAddr + (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode),
-            sizeof(goOp), nullptr, &goOp);
+            sizeof(goOp), nullptr, (uint8_t *)&goOp);
 
     if ((goOp >> 31) == 1) {
         // DPRINTF(NicCtrl, " `GO` is still high\n");
@@ -429,7 +352,7 @@ void NicCtrl::postHcr(uint64_t inParam,
     DPRINTF(NicCtrl, " outParam_h: 0x%x\n", hcr.outParam_h);
     DPRINTF(NicCtrl, " goOpcode: 0x%x\n", hcr.goOpcode);
 
-    dmaWrite(hcrAddr, sizeof(hcr), nullptr, &hcr);
+    dmaWrite(hcrAddr, sizeof(hcr), nullptr, (uint8_t *)&hcr);
 }
 
 ////////////////////////// NicCtrl::HCR relevant {end}/////////////////////////
@@ -568,7 +491,7 @@ uint32_t NicCtrl::allocResc(uint8_t rescType, RescMeta &rescMeta) {
     }
     rescMeta.bitmap[i] |= (1 << j);
 
-    rescNum += (cpu_id << RESC_LIM_LOG);
+    rescNum += (0 << RESC_LIM_LOG); // The cpu_id = 0;
     return rescNum;
 }
 /* -------------------------- Resc {end} ------------------------ */
@@ -701,73 +624,79 @@ void NicCtrl::writeQpc(struct kfd_ioctl_write_qpc_args *args) {
 
 /* -------------------------- QPC {end} ------------------------ */
 
+/* This function is compulsory */
+NicCtrl * NicCtrlParams::create() {
+    return new NicCtrl(this);
+}
 
 /******************************* MemAllocator ***************************/
 
-struct MemBlock MemAllocator::allocMem(size_t size) {
+MemBlock MemAllocator::allocMem(size_t size) {
     Addr paddrStart, paddrEnd;
     Addr vaddrStart = (Addr) (new uint8_t[size]);
     Addr vaddrEnd = vaddrStart + size - 1;
     auto it = memMap.begin();
 
-    for (it; it != memMap.end() - 1; it++) {
-        if (memMap[it].paddr.end() + size < memMap[it+1].paddr.start()) {
-            paddrStart = memMap[it].paddr.end() + 1;
+    for (it; std::next(it, 1) != memMap.end(); it++) {
+        if (it->paddr.end() + size < std::next(it, 1)->paddr.start()) {
+            paddrStart = it->paddr.end() + 1;
             paddrEnd = paddrStart + size - 1;
             break;
         }
     }
     MemBlock memBlock = {
-        .paddr = AddrRange(paddrStart, paddrEnd),
-        .vaddr = AddrRange(vaddrStart, vaddrEnd)
-    }
-    memMap.insert(it+1, memBlock);
+        .vaddr = AddrRange(vaddrStart, vaddrEnd),
+        .paddr = AddrRange(paddrStart, paddrEnd)
+    };
+    memMap.insert(std::next(it, 1), memBlock);
 
     return memBlock;
 }
 
-void MemAllocator::destroyMem(MemBlock memBlock) {
-    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
-        if (memMap[it] == memBlock) {
+void MemAllocator::destroyMem(MemBlock *memBlock) {
+    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
+        if ((MemBlock *)&(*it) == memBlock) {
             memMap.erase(it);
         }
     }
     return;
 }
 
-MemBlock MemAllocator::getPhyBlock(Addr paddr) {
-    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
-        if (memMap[it].paddr.contains(paddr)) {
-            return memMap[it];
+MemBlock* MemAllocator::getPhyBlock(Addr paddr) {
+    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
+        if (it->paddr.contains(paddr)) {
+            return (MemBlock*)&(*it);
         }
     }
     return NULL;
 }
 
-MemBlock MemAllocator::getVirBlock(Addr vaddr) {
-    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
-        if (memMap[it].vaddr.contains(vaddr)) {
-            return memMap[it];
+MemBlock* MemAllocator::getVirBlock(Addr vaddr) {
+    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
+        if (it->vaddr.contains(vaddr)) {
+            return (MemBlock*)&(*it);
         }
     }
     return NULL;
 }
 
 Addr MemAllocator::getPhyAddr(Addr vaddr) {
-    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
-        if (memMap[it].vaddr.contains(vaddr)) {
-            uint64_t idx = vaddr - memMap[it].vaddr.start();
-            Addr paddr = memMap[it].paddr.start() + idx;
+    Addr paddr;
+    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
+        if (it->vaddr.contains(vaddr)) {
+            uint64_t idx = vaddr - it->vaddr.start();
+            paddr = it->paddr.start() + idx;
         }
     }
     return paddr;
 }
 
 Addr MemAllocator::getVirAddr(Addr paddr) {
-    for (auto it = memMap.begin(); it != memMap.end() - 1; it++) {
-        if (memMap[it].paddr.contains(paddr)) {
-            uint64_t idx = paddr - memMap[it].paddr.start();
-            Addr vaddr = memMap[it].vaddr.start() + idx;
+    Addr vaddr;
+    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
+        if (it->paddr.contains(paddr)) {
+            uint64_t idx = paddr - it->paddr.start();
+            vaddr = it->vaddr.start() + idx;
         }
     }
     return vaddr;

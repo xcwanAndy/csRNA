@@ -2,6 +2,8 @@
 #define __IBV_TEST_H__
 
 #include <stdio.h>
+#include "debug/XDR.hh"
+#include "params/IbvTest.hh"
 #include "libibv.hh"
 
 struct rem_info {
@@ -32,7 +34,7 @@ class IbvTest : public SimObject {
                 return dynamic_cast<const Params *>(_params);
             }
         IbvTest(const Params *params);
-        ~IbvTest();
+        ~IbvTest(){};
 
         Ibv *ibv;
         EventFunctionWrapper mainEvent;

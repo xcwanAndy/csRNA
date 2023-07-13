@@ -37,14 +37,13 @@
 #include "dev/rdma/kfd_ioctl.h"
 
 #include "base/inet.hh"
-#include "debug/EthernetDesc.hh"
-#include "debug/EthernetIntr.hh"
 #include "dev/net/etherdevice.hh"
 #include "dev/net/etherint.hh"
 #include "dev/net/etherpkt.hh"
 #include "dev/net/pktfifo.hh"
 #include "dev/pci/device.hh"
 #include "sim/syscall_emul_buf.hh"
+#include "sim/sim_object.hh"
 #include "params/NicCtrl.hh"
 
 using namespace HanGuRnicDef;
@@ -69,22 +68,22 @@ class MemAllocator {
             };
             memMap.emplace_front(initBlock);
         }
-        ~MemAllocator();
+        ~MemAllocator(){}
 
         /* Alloc a block of memory
          * Return a virtual addr
          */
         MemBlock allocMem(size_t size);
 
-        void destroyMem(MemBlock block);
+        void destroyMem(MemBlock *block);
 
         /* Get MemBlock from physical addr
          */
-        MemBlock getPhyBlock(Addr paddr);
+        MemBlock* getPhyBlock(Addr paddr);
 
         /* Get MemBlock from virtual addr
          */
-        MemBlock getVirBlock(Addr vaddr);
+        MemBlock* getVirBlock(Addr vaddr);
 
         /* Get physical addr from virtual addr
          */
@@ -117,10 +116,10 @@ class NicCtrl : public PciDevice {
         MemAllocator *getMemAlloc(){ return &memAlloc; }
 
         // Control Interface
-        int nicCtrl(unsigned req, Addr ioc_buf);
+        int nicCtrl();
         EventFunctionWrapper nicCtrlEvent;
         unsigned nicCtrlReq;
-        void * ioc_buf;
+        void *ioc_buf;
 
         // PIO Interface
         Tick writeConfig(PacketPtr pkt) override;
@@ -155,31 +154,31 @@ class NicCtrl : public PciDevice {
             uint8_t mptNumLog, uint8_t mttNumLog);
         uint8_t isIcmMapped(RescMeta &rescMeta, Addr index);
         Addr allocIcm(RescMeta &rescMeta, Addr index);
-        void writeIcm(uint8_t rescType, RescMeta &rescMeta, Addr icmVPage);
+        void writeIcm(uint8_t rescType, Addr icmVPage);
 
         // HCR
-        uint8_t checkHcr(PortProxy& portProxy);
+        uint8_t checkHcr();
         void postHcr(uint64_t inParam, uint32_t inMod, uint64_t outParam, uint8_t opcode);
 
         // MTT
         RescMeta mttMeta;
-        void allocMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args);
-        void writeMtt(TypedBufferArg<kfd_ioctl_init_mtt_args> &args);
+        void allocMtt(struct kfd_ioctl_init_mtt_args *args);
+        void writeMtt(struct kfd_ioctl_init_mtt_args *args);
 
         // MPT
         RescMeta mptMeta;
-        void allocMpt(TypedBufferArg<kfd_ioctl_alloc_mpt_args> &args);
-        void writeMpt(TypedBufferArg<kfd_ioctl_write_mpt_args> &args);
+        void allocMpt(struct kfd_ioctl_alloc_mpt_args *args);
+        void writeMpt(struct kfd_ioctl_write_mpt_args *args);
 
         // CQC
         RescMeta cqcMeta;
-        void allocCqc(TypedBufferArg<kfd_ioctl_alloc_cq_args> &args);
-        void writeCqc(TypedBufferArg<kfd_ioctl_write_cqc_args> &args);
+        void allocCqc(struct kfd_ioctl_alloc_cq_args *args);
+        void writeCqc(struct kfd_ioctl_write_cqc_args *args);
 
         // QPC
         RescMeta qpcMeta;
-        void allocQpc(TypedBufferArg<kfd_ioctl_alloc_qp_args> &args);
-        void writeQpc(TypedBufferArg<kfd_ioctl_write_qpc_args> &args);
+        void allocQpc(struct kfd_ioctl_alloc_qp_args *args);
+        void writeQpc(struct kfd_ioctl_write_qpc_args *args);
 };
 
 

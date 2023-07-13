@@ -40,6 +40,7 @@
 #include "sim/sim_object.hh"
 #include "sim/syscall_emul_buf.hh"
 #include "params/NicCtrl.hh"
+#include "params/Ibv.hh"
 
 extern char id_name[10];
 extern uint8_t  cpu_id;
@@ -72,10 +73,10 @@ extern uint32_t num_client;
  */
 // We just implement RC and UD
 //enum ibv_qp_type {
-    //QP_TYPE_RC = (uint8_t)0x00,
-    //QP_TYPE_UC = (uint8_t)0x01,
-    //QP_TYPE_RD = (uint8_t)0x02,
-    //QP_TYPE_UD = (uint8_t)0x03
+    //QP_TYPE_RC,
+    //QP_TYPE_UC,
+    //QP_TYPE_RD,
+    //QP_TYPE_UD
 //};
 
 enum ibv_mr_flag {

@@ -3,8 +3,8 @@
 
 IbvTest::IbvTest(const Params *p)
     : SimObject(p),
-    ibv(&p->ibv),
-    mainEvent([this]{ main(); }, name()),
+    ibv(p->ibv),
+    mainEvent([this]{ main(); }, name())
 {
     if (!mainEvent.scheduled()) {
         schedule(mainEvent, curTick());
@@ -177,7 +177,7 @@ struct Resource *IbvTest::resc_init(uint16_t llid, int msg_size, int num_qp, int
 
     struct ibv_mr_init_attr mr_attr;
     mr_attr.length = msg_size;
-    mr_attr.flag = MR_FLAG_RD | MR_FLAG_WR | MR_FLAG_LOCAL | MR_FLAG_REMOTE;
+    mr_attr.flag = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_WR | MR_FLAG_LOCAL | MR_FLAG_REMOTE);
     res->mr = ibv->ibv_reg_mr(&(res->ctx), &mr_attr);
     DPRINTF(IbvTest, "[test requester] ibv_reg_mr End! lkey %d, vaddr 0x%lx\n", res->mr->lkey, (uint64_t)res->mr->addr);
 
@@ -244,4 +244,9 @@ int IbvTest::main () {
 
     return 0;
 
+}
+
+/* This function is compulsory */
+IbvTest * IbvTestParams::create() {
+    return new IbvTest(this);
 }
