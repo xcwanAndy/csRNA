@@ -41,7 +41,7 @@ class RdmaNic(PciDevice):
     type = 'RdmaNic'
     abstract = True
     cxx_header = "dev/rdma/rdma_nic.hh"
-    
+
 
 class HanGuRnic(RdmaNic):
     # class for Han Gu RNIC
