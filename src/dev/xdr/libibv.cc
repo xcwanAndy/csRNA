@@ -46,7 +46,7 @@
 Ibv::Ibv(const Params *p)
     : SimObject(p),
     nicCtrl(p->nicCtrl){
-        DPRINTF(Ibv, " Initializing Ibv");
+        DPRINTF(Ibv, " Initializing Ibv\n");
         memAlloc = nicCtrl->getMemAlloc();
     }
 

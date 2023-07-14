@@ -33,3 +33,4 @@ configs/dram/lowp_sweep.cfg
 .vscode/**
 scripts/res_out/**
 tests/test-progs/hangu-rnic/bin/**
+*.bak

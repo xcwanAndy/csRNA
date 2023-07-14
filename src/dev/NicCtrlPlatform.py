@@ -29,9 +29,9 @@ from m5.objects.PciHost import GenericPciHost
 
 
 class NicCtrlPciHost(GenericPciHost):
-    conf_base = 0xC000000000000000
+    conf_base = 0xE000000000000000
     conf_size = "16MB"
-    pci_pio_base = 0x8000000000000000
+    pci_pio_base = 0x9000000000000000
 
 class NicCtrlPlatform(Platform):
     type = 'NicCtrlPlatform'
@@ -43,6 +43,6 @@ class NicCtrlPlatform(Platform):
     nic_ctrl = NicCtrl(pci_bus=1, pci_dev=1, pci_func=1)
 
     def attachIO(self, bus):
-        self.pci_host.pio = bus.default
+        self.pci_host.pio = bus.mem_side_ports
         self.nic_ctrl.pio = bus.mem_side_ports
         self.nic_ctrl.dma = bus.cpu_side_ports

@@ -35,6 +35,7 @@ from m5.util import addToPath, fatal, warn
 
 from m5.objects.PciHost import *
 from m5.objects.Rnic import HanGuRnic, HanGuDriver
+from m5.objects.Xdr import NicCtrl, Ibv, IbvTest
 
 
 addToPath('../../')
@@ -49,40 +50,8 @@ from common.FileSystemConfig import config_filesystem
 from common.Caches import *
 from common.cpu2000 import *
 
-def get_processes(options, system, rdma_driver, idx, node_num=0):
-    """
-    Interprets provided options and returns a list of processes
-    """
+APP = "tests/test-progs/nic-ctrl/bin/loop"
 
-    inputs = []
-    outputs = []
-    errouts = []
-
-    # Get cmd from input
-    cmd = options.cmd.split(';')
-    if len(cmd) < options.node_num:
-        fatal("Too few cmds!")
-        sys.exit(1)
-    workloads = [cmd[node_num]]
-
-    # Get options from input
-    opt = options.options.split(';')
-    if len(opt) < options.node_num:
-        fatal("Too few opts!")
-        sys.exit(1)
-    pargs = opt[node_num]
-
-    process = Process(pid = 100 + idx)
-    process.executable = workloads[0]
-    process.cwd = os.getcwd()
-    process.cmd = [workloads[0]] + pargs.split() + ['-c', str(idx)]
-    process.drivers = [rdma_driver]
-
-    if options.env:
-        with open(options.env, 'r') as f:
-            process.env = [line.rstrip() for line in f]
-
-    return process
 
 # def config_rnic(system, options, node_num):
 
@@ -125,14 +94,6 @@ def main():
 
     (CPUClass, test_mem_mode, FutureClass) = Simulation.setCPUClass(options)
 
-    # Check -- do not allow SMT with multiple CPUs
-    if options.smt and options.num_cpus > 1:
-        fatal("You cannot use SMT with multiple CPUs!")
-
-    if options.node_num < 2:
-        fatal("Too few nodes!")
-        sys.exit(1)
-
     # # input ethernet and pci link speed
     # en_bw  = options.ethernet_linkspeed
     # pci_bw = options.pci_linkspeed
@@ -141,10 +102,10 @@ def main():
 
     system = System(cpu = [CPUClass(socket_id=i, cpu_id=i,
                                     numThreads=1, syscallRetryLatency=200)
-                           for i in range(1,1)],
+                           for i in range(0,1)],
                     mem_mode = test_mem_mode,
                     mem_ranges = [AddrRange(options.mem_size)],
-                    cache_line_size = options.cacheline_size,
+                    # cache_line_size = options.cacheline_size,
                     workload = NULL)
 
     # Create a top-level voltage domain
@@ -207,53 +168,46 @@ def main():
     system.dmabridge.slave = system.iobus.master
     system.dmabridge.master = system.membus.slave
 
-    # Get input param
-    opt = options.options.split(';')
-    if len(opt) < options.node_num:
-        fatal("Too few opts!")
-        sys.exit(1)
-    in_pargs = opt[node_num].split()
+    mac_addr = 0xaabbccdd
 
-    # Parse input pargs
-    svr_mac = 0
-    clt_mac = 0
-    for i in range(len(in_pargs)):
-        if in_pargs[i] == "-s":
-            svr_mac = int(in_pargs[i+1])
-        elif in_pargs[i] == "-l":
-            clt_mac = int(in_pargs[i+1])
+    system.ibv_test = IbvTest()
+    system.ibv = Ibv()
+    system.ibv_test.ibv = system.ibv
 
-    # Get mac_addr
-    if node_num == 0:
-        mac_addr = svr_mac
-    else:
-        mac_addr = clt_mac
+    # RNIC Platform
+    system.nic_platform = RnicPlatform()
+    system.nic_platform.rdma_nic.mac_addr = mac_addr
+    system.nic_platform.rdma_nic.pci_speed     = options.pci_linkspeed
+    system.nic_platform.rdma_nic.ether_speed   = options.ethernet_linkspeed
+    system.nic_platform.rdma_nic.qpc_cache_cap = options.qpc_cache_cap
+    system.nic_platform.rdma_nic.reorder_cap   = options.reorder_cap
+    system.nic_platform.rdma_nic.cpu_num       = options.num_cpus
+    # Attach RNIC to iobus
+    system.nic_platform.attachIO(system.iobus)
 
-    system.platform = RnicPlatform()
-    system.platform.rdma_nic.mac_addr = mac_addr
-    system.platform.rdma_nic.pci_speed     = options.pci_linkspeed
-    system.platform.rdma_nic.ether_speed   = options.ethernet_linkspeed
-    system.platform.rdma_nic.qpc_cache_cap = options.qpc_cache_cap
-    system.platform.rdma_nic.reorder_cap   = options.reorder_cap
-    system.platform.rdma_nic.cpu_num       = options.num_cpus
-    
-    system.platform.attachIO(system.iobus)
+    # rdma_driver = HanGuDriver(filename="hangu_rnic"+str(i))
+    # rdma_driver.device = system.nic_platform.rdma_nic
+
     system.intrctrl = IntrControl()
 
-    if options.cmd:
-        for i in range(options.num_cpus):
-            rdma_driver = HanGuDriver(filename="hangu_rnic"+str(i))
-            rdma_driver.device = system.platform.rdma_nic
-            process = get_processes(options, system, rdma_driver, i, node_num)
-            system.cpu[i].workload = process
-            system.cpu[i].createThreads()
-    else:
-        print("No workload specified. Exiting!\n", file=sys.stderr)
-        sys.exit(1)
+    # NIC Controller Platform
+    system.ctrl_platform = NicCtrlPlatform()
+    system.ctrl_platform.nic_ctrl.rnic = system.nic_platform.rdma_nic
+    system.ctrl_platform.nic_ctrl.pci_speed = options.pci_linkspeed
+    # Attach NIC Controller to iobus
+    system.ctrl_platform.attachIO(system.iobus)
 
-    if options.wait_gdb:
-        for cpu in system.cpu:
-            cpu.wait_for_remote_gdb = True
+    system.ibv.nicCtrl = system.ctrl_platform.nic_ctrl
+
+    process = Process(pid = 100)
+    process.executable = APP
+    process.cwd = os.getcwd()
+    process.cmd = [APP]
+    system.cpu[0].workload = process
+    system.cpu[0].createThreads()
+
+    for cpu in system.cpu:
+        cpu.wait_for_remote_gdb = True
 
     # root = make_root_system(rnic_sys, options.ethernet_linkspeed)
     root = Root(full_system=False, system=system)

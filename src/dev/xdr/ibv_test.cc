@@ -6,8 +6,10 @@ IbvTest::IbvTest(const Params *p)
     ibv(p->ibv),
     mainEvent([this]{ main(); }, name())
 {
+        DPRINTF(IbvTest, "Initializing IbvTest\n");
     if (!mainEvent.scheduled()) {
-        schedule(mainEvent, curTick());
+        DPRINTF(IbvTest, "mainEvent is being scheduled ...\n");
+        schedule(mainEvent, curTick() + 1000);
     }
 } // IbvTest::IbvTest
 
@@ -91,6 +93,7 @@ struct ibv_wqe *IbvTest::init_rdma_write_wqe (struct Resource *res, struct ibv_m
         wqe->rdma.raddr = raddr;
         wqe->rdma.rkey  = rkey;
     }
+    return wqe;
 }
 
 struct ibv_wqe *IbvTest::init_rdma_read_wqe (struct ibv_mr* req_mr, struct ibv_mr* rsp_mr, uint32_t qkey) {
@@ -118,6 +121,7 @@ struct ibv_wqe *IbvTest::init_rdma_read_wqe (struct ibv_mr* req_mr, struct ibv_m
     wqe->rdma.rkey  = rsp_mr->lkey;
 
     // DPRINTF(IbvTest, "[test requester] init_snd_wqe: rKey: 0x%x, rAddr: 0x%lx\n", wqe->rdma.rkey, wqe->rdma.raddr);
+    return wqe;
 }
 
 void IbvTest::config_rc_qp(struct Resource *res) {
@@ -204,6 +208,8 @@ int IbvTest::main () {
     sprintf(id_name, "%d", 999);
 
     struct Resource *res = resc_init(llid, 1, 1, 1);
+
+    DPRINTF(IbvTest, "main function executing ...\n");
 
     exchange_rc_info();
 
