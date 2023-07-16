@@ -24,6 +24,7 @@
 #include "dev/xdr/libibv.hh"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <queue>
@@ -58,11 +59,12 @@ void Ibv::wait(uint32_t n) {
 
 
 uint8_t Ibv::write_cmd(unsigned long request, void *args) {
-    nicCtrl->nicCtrlReq = request;
-    nicCtrl->ioc_buf = args;
-    if (!nicCtrl->nicCtrlEvent.scheduled()) {
-        nicCtrl->schedule(nicCtrl->nicCtrlEvent, curTick() + nicCtrl->clockPeriod());
-    }
+    //nicCtrl->nicCtrlReqFifo.push(request);
+    //nicCtrl->ioc_buf_fifo.push(args);
+    //if (!nicCtrl->nicCtrlEvent.scheduled()) {
+        //nicCtrl->schedule(nicCtrl->nicCtrlEvent, curTick() + nicCtrl->clockPeriod());
+    //}
+    nicCtrl->nicCtrl(request, args);
     //while (nicCtrl(request, (void *)args)) {
         //DPRINTF(Ibv, " %ld ioctl failed try again\n", request);
         //wait(SLEEP_CNT);
@@ -136,7 +138,7 @@ int Ibv::ibv_open_device(struct ibv_context *context, uint16_t lid) {
 
 struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr) {
     DPRINTF(Ibv, " ibv_reg_mr!\n");
-    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
     struct ibv_mr *mr =  (struct ibv_mr *)malloc(sizeof(struct ibv_mr));
 
     /* Calc needed number of pages */
@@ -147,6 +149,10 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
     /* !TODO: Now, we require allocated memory's start
      * vaddr is at the boundry of one page */
     //mr->addr   = memalign(PAGE_SIZE, mr_attr->length);
+    /* align length */
+    uint64_t len = mr_attr->length;
+    len = ((uint64_t)(len / PAGE_SIZE) + 1) * PAGE_SIZE;
+    mr_attr->length = len;
     /* This address will be translated into phys addr */
     mr->addr = (uint8_t *)memAlloc->allocMem(mr_attr->length).vaddr.start();
     memset(mr->addr, 0, mr_attr->length);
@@ -197,7 +203,7 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
 
 struct ibv_mr* Ibv::ibv_reg_batch_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr, uint32_t batch_size) {
     DPRINTF(Ibv, " ibv_reg_batch_mr!\n");
-    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
     struct ibv_mr *mr =  (struct ibv_mr *)malloc(sizeof(struct ibv_mr) * batch_size);
 
     uint32_t batch_cnt = 0;
@@ -281,7 +287,7 @@ struct ibv_mr* Ibv::ibv_reg_batch_mr(struct ibv_context *context, struct ibv_mr_
 struct ibv_cq* Ibv::ibv_create_cq(struct ibv_context *context, struct ibv_cq_init_attr *cq_attr) {
 
     DPRINTF(Ibv, " enter ibv_create_cq!\n");
-    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
     struct ibv_cq *cq = (struct ibv_cq *)malloc(sizeof(struct ibv_cq));
 
     /* Allocate CQ */
@@ -321,7 +327,7 @@ struct ibv_qp* Ibv::ibv_create_qp(struct ibv_context *context, struct ibv_qp_cre
 
     DPRINTF(Ibv, " enter ibv_create_qp!\n");
 
-    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
     struct ibv_qp *qp = (struct ibv_qp *)malloc(sizeof(struct ibv_qp));
     memset(qp, 0, sizeof(struct ibv_qp));
 
@@ -358,7 +364,7 @@ struct ibv_qp* Ibv::ibv_create_batch_qp(struct ibv_context *context, struct ibv_
 
     DPRINTF(Ibv, " enter ibv_create_batch_qp!\n");
 
-    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
     struct ibv_qp *qp = (struct ibv_qp *)malloc(sizeof(struct ibv_qp) * batch_size);
     memset(qp, 0, sizeof(struct ibv_qp));
 
@@ -405,7 +411,7 @@ struct ibv_qp* Ibv::ibv_create_batch_qp(struct ibv_context *context, struct ibv_
 
 int Ibv::ibv_modify_qp(struct ibv_context *context, struct ibv_qp *qp) {
     DPRINTF(Ibv, " enter ibv_modify_qp!\n");
-    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
 
     /* write QP */
     struct kfd_ioctl_write_qpc_args *qpc_args =
@@ -437,7 +443,7 @@ int Ibv::ibv_modify_qp(struct ibv_context *context, struct ibv_qp *qp) {
 
 int Ibv::ibv_modify_batch_qp(struct ibv_context *context, struct ibv_qp *qp, uint32_t batch_size) {
     DPRINTF(Ibv, " enter ibv_modify_batch_qp!\n");
-    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
 
     /* write QP */
     struct kfd_ioctl_write_qpc_args *qpc_args =
@@ -491,7 +497,7 @@ int Ibv::ibv_modify_batch_qp(struct ibv_context *context, struct ibv_qp *qp, uin
  */
 int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct ibv_qp *qp, uint8_t num) {
     struct hghca_context *dvr = (struct hghca_context *)context->dvr;
-    volatile uint64_t *doorbell;
+    volatile uint64_t doorbell;
     volatile Addr doorbell_addr = dvr->doorbell;
 
     struct send_desc *tx_desc;
@@ -538,8 +544,9 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
             // tx_desc->opcode  = IBV_TYPE_NULL;
             uint32_t db_low  = (sq_head << 4) | first_trans_type;
             uint32_t db_high = (qp->qp_num << 8) | snd_cnt;
-            *doorbell = ((uint64_t)db_high << 32) | db_low;
-            nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)doorbell);
+            doorbell = ((uint64_t)db_high << 32) | db_low;
+            DPRINTF(Ibv, "doorbell addr: %ld, doorbell: %ld\n", doorbell_addr, doorbell);
+            nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)&doorbell);
 
             sq_head = 0;
             first_trans_type = (i == num - 1) ? IBV_TYPE_NULL : wqe[i+1].trans_type;
@@ -547,21 +554,22 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
             qp->snd_wqe_offset = 0; /* SQ MR is allocated in page, so
                                      * the start address (offset) is 0 */
 
-            // HGRNIC_PRINT(" 1db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
+             DPRINTF(Ibv, " 1db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
         }
 
-        // uint8_t *u8_tmp = (uint8_t *)tx_desc;
-        // for (int i = 0; i < sizeof(struct send_desc); ++i) {
-        //     HGRNIC_PRINT(" data[%d] 0x%x\n", i, u8_tmp[i]);
-        // }
+         uint8_t *u8_tmp = (uint8_t *)tx_desc;
+         for (int i = 0; i < sizeof(struct send_desc); ++i) {
+             DPRINTF(Ibv, " data[%d] 0x%x\n", i, u8_tmp[i]);
+         }
     }
 
     if (snd_cnt) {
         /* Post send doorbell */
         uint32_t db_low  = (sq_head << 4) | first_trans_type;
         uint32_t db_high = (qp->qp_num << 8) | snd_cnt;
-        *doorbell = ((uint64_t)db_high << 32) | db_low;
-        nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)doorbell);
+        doorbell = ((uint64_t)db_high << 32) | db_low;
+        DPRINTF(Ibv, "doorbell addr: %ld, doorbell: %ld\n", doorbell_addr, doorbell);
+        nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)&doorbell);
 
         // HGRNIC_PRINT(" db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
     }

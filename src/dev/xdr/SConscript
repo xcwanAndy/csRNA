@@ -36,7 +36,8 @@ Source('ibv_test.cc')
 
 
 DebugFlag('NicCtrl')
+DebugFlag('MemAlloc')
 DebugFlag('Ibv')
 DebugFlag('IbvTest')
 
-CompoundFlag('XDR', ['NicCtrl', 'Ibv', 'IbvTest'])
+CompoundFlag('XDR', ['NicCtrl', 'MemAlloc', 'Ibv', 'IbvTest'])

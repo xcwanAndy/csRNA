@@ -45,8 +45,8 @@ Source('platform.cc')
 SimObject('RnicPlatform.py')
 Source('rnicPlatform.cc')
 
-SimObject('NicCtrlPlatform.py')
-Source('nicCtrlPlatform.cc')
+#SimObject('NicCtrlPlatform.py')
+#Source('nicCtrlPlatform.cc')
 
 if env['TARGET_ISA'] == 'null':
     Return()

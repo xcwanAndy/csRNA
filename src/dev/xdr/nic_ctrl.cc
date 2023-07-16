@@ -22,6 +22,7 @@
  */
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <iterator>
 #include <memory>
@@ -37,6 +38,7 @@
 #include "dev/rdma/kfd_ioctl.h"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
+#include "sim/core.hh"
 #include "sim/stats.hh"
 #include "sim/system.hh"
 #include "dev/xdr/nic_ctrl.hh"
@@ -48,20 +50,24 @@ using namespace std;
 NicCtrl::NicCtrl(const Params *p)
     : PciDevice(p),
     rnic(p->rnic),
-    memAlloc(0xd300000000000000),
-    nicCtrlEvent([this]{ nicCtrl(); }, name())
+    mailboxAlloc(p->base_addr),
+    memAlloc(p->base_addr + (MAILBOX_PAGE_NUM << 12) * 64),
+    mailboxBase(p->base_addr),
+    mailboxRange(0, (MAILBOX_PAGE_NUM << 12) * 64),
+    //nicCtrlEvent([this]{ nicCtrl(); }, name())
+    sendMailEvent([this]{ sendMail(); }, name())
 {
 
         DPRINTF(NicCtrl, " qpc_cache_cap %d  reorder_cap %d cpuNum 0x%x\n",
                 p->qpc_cache_cap, p->reorder_cap, p->cpu_num);
 
-        BARSize[0]  = (1 << 12);
-        BARAddrs[0] = 0xd000000000000000;
+        BARSize[0]  = (1 << 30);
+        BARAddrs[0] = p->base_addr;
 
+        /* Get doorbell and HCR addrs of rnic */
         AddrRangeList addr_list = rnic->getAddrRanges();
         AddrRange bar0 = addr_list.front(); // Get BAR0
         hcrAddr = bar0.start();
-
         doorBell = hcrAddr + 0x18;
 } // NicCtrl::NicCtrl
 
@@ -77,7 +83,16 @@ void NicCtrl::init() {
 /* This funtion is corresponded to ioctl in hangu_driver
  * This function should be scheduled by upper layer
  */
-int NicCtrl::nicCtrl() {
+int NicCtrl::nicCtrl(unsigned nicCtrlReq, void * ioc_buf) {
+    /* Get nicCtrlReq from FIFO */
+    //assert(nicCtrlReqFifo.size());
+    //unsigned nicCtrlReq = nicCtrlReqFifo.front();
+    //nicCtrlReqFifo.pop();
+
+    /* Get ioc_buf from FIFO */
+    //assert(ioc_buf_fifo.size());
+    //void* ioc_buf = ioc_buf_fifo.front();
+    //ioc_buf_fifo.pop();
 
     if (HGKFD_IOC_GET_TIME == nicCtrlReq) {
         DPRINTF(NicCtrl, " ioctl: HGKFD_IOC_GET_TIME %ld\n", curTick());
@@ -97,7 +112,7 @@ int NicCtrl::nicCtrl() {
 
     /* ioc_buf should be allocated by memAlloc
      */
-    Addr pAddr = memAlloc.getPhyAddr((Addr)ioc_buf);
+    //Addr pAddr = memAlloc.getPhyAddr((Addr)ioc_buf);
 
     switch (nicCtrlReq) {
       case HGKFD_IOC_INIT_DEV: // Input
@@ -108,7 +123,7 @@ int NicCtrl::nicCtrl() {
             struct kfd_ioctl_init_dev_args *args;
             args = (struct kfd_ioctl_init_dev_args *) ioc_buf;
 
-            initMailbox();
+            //initMailbox();
             DPRINTF(NicCtrl, " HGKFD_IOC_INIT_DEV mailbox initialized\n");
 
             // We don't use input parameter here
@@ -225,7 +240,7 @@ int NicCtrl::nicCtrl() {
         {
             /* We don't check `go` bit here, cause it
              * has been checked at the beginning of ioctl. */
-            // DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_CHECK_GO, `GO` is cleared.\n");
+             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_CHECK_GO, `GO` is cleared.\n");
         }
         break;
       default:
@@ -234,6 +249,7 @@ int NicCtrl::nicCtrl() {
         }
         break;
     }
+    //free(ioc_buf);
     return 0;
 }
 
@@ -265,33 +281,34 @@ Tick NicCtrl::read(PacketPtr pkt) {
     if (!getBAR(pkt->getAddr(), bar, daddr)) {
         panic("Invalid PCI memory access to unmapped memory.\n");
     }
-
     /* Only HCR Space (BAR0-1) is allowed */
     assert(bar == 0);
 
-    /* Only 32bit accesses allowed */
-    assert(pkt->getSize() == 4);
-
     DPRINTF(PioEngine, " Read device addr 0x%x, pioDelay: %d\n", daddr, pioDelay);
 
+    Addr paddr = pkt->getAddr();
+    if (mailboxRange.contains(daddr)) {
+        /* If read mailbox data */
+        Addr vaddr = mailboxAlloc.getVirAddr(paddr);
+        pkt->setData((uint8_t *)vaddr);
+        /* Set memBlock Invalid */
+        MemBlock *memBlock = mailboxAlloc.getPhyBlock(paddr);
+        memBlock->isValid = false;
+    } else {
+        /* Other data */
+        Addr vaddr = memAlloc.getVirAddr(paddr);
+        pkt->setData((uint8_t *)vaddr);
+    }
 
-    /* Handle read of register here.
-     * Here we only implement read go bit */
-    //if (daddr == (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode)) {[> Access `GO` bit <]
-        //pkt->setLE<uint32_t>(regs.cmdCtrl.go()<<31 | regs.cmdCtrl.op());
-    //} else if (daddr == 0x20) {[> Access `sync` reg <]
-        //pkt->setLE<uint32_t>(syncSucc);
-    //} else {
-        //pkt->setLE<uint32_t>(0);
-    //}
-
-    //pkt->makeAtomicResponse();
+    pkt->makeAtomicResponse();
     return pioDelay;
 }
 
 Tick NicCtrl::write(PacketPtr pkt) {
     int bar;
     Addr daddr;
+
+    DPRINTF(PioEngine, "************** This is the NicCtrl::write ! *******************\n");
 
     DPRINTF(PioEngine, " PioEngine.write: pkt addr 0x%x, size 0x%x\n",
             pkt->getAddr(), pkt->getSize());
@@ -357,19 +374,39 @@ void NicCtrl::postHcr(uint64_t inParam,
 
 ////////////////////////// NicCtrl::HCR relevant {end}/////////////////////////
 
-/* -------------------------- Mailbox {begin} ------------------------ */
-void NicCtrl::initMailbox() {
-    // The size of mailbox: 128KB
-    uint32_t allocPages = MAILBOX_PAGE_NUM;
-    mailbox.data = new uint8_t[4096 * allocPages];
+//[> -------------------------- Mailbox {begin} ------------------------ <]
+//void NicCtrl::initMailbox() {
+    //// The size of mailbox: 128KB
+    //uint32_t allocPages = MAILBOX_PAGE_NUM;
+    //mailbox.data = new uint8_t[4096 * allocPages];
 
-    // The index
-    mailbox.addr = mailboxBase;
+    //// The index
+    //mailbox.addr = mailboxBase;
 
-    DPRINTF(NicCtrl, " mailbox.addr : 0x%x\n", mailbox.addr);
+    //DPRINTF(NicCtrl, " mailbox.addr : 0x%x\n", mailbox.addr);
+//}
+
+void NicCtrl::scheduleMailbox(MailElem mailElem){
+    mailFifo.push(mailElem);
+    if (! sendMailEvent.scheduled()) {
+        schedule(sendMailEvent, curTick() + clockPeriod());
+    }
 }
 
-/* -------------------------- Mailbox {end} ------------------------ */
+void NicCtrl::sendMail(){
+    assert(! mailFifo.empty());
+
+    MailElem mailElem = mailFifo.front();
+    mailFifo.pop();
+
+    postHcr(mailElem.inParam, mailElem.inMod, mailElem.outParam, mailElem.opcode);
+
+    if (!mailFifo.empty() && !sendMailEvent.scheduled()) {
+        schedule(sendMailEvent, curTick() + clockPeriod());
+    }
+}
+
+//[> -------------------------- Mailbox {end} ------------------------ <]
 
 /* -------------------------- ICM {begin} ------------------------ */
 // Interconnect Context Memory (ICM)
@@ -430,8 +467,22 @@ void NicCtrl::initIcm(uint8_t qpcNumLog, uint8_t cqcNumLog,
     // DPRINTF(NicCtrl, " qpcMeta.start: 0x%lx, cqcMeta.start : 0x%lx,
     //         mptMeta.start : 0x%lx, mttMeta.start : 0x%lx\n",
     //         qpcMeta.start, cqcMeta.start, mptMeta.start, mttMeta.start);
-    memcpy(mailbox.data, &initResc, sizeof(HanGuRnicDef::InitResc));
-    postHcr((uint64_t)mailbox.addr, 0, 0, HanGuRnicDef::INIT_ICM);
+    //memcpy(mailbox.vaddr, &initResc, sizeof(HanGuRnicDef::InitResc));
+    //postHcr((uint64_t)mailbox.paddr, 0, 0, HanGuRnicDef::INIT_ICM);
+    /* Alloc memBlock for mailbox data */
+    MemBlock memBlock = mailboxAlloc.allocMem(sizeof(HanGuRnicDef::InitResc));
+    Addr vaddr = memBlock.vaddr.start();
+    Addr paddr = memBlock.paddr.start();
+    memcpy((uint8_t *)vaddr, &initResc, sizeof(HanGuRnicDef::InitResc));
+    MailElem mailElem = {
+        .src = vaddr,
+        .size = sizeof(HanGuRnicDef::InitResc),
+        .inParam = paddr,
+        .inMod = 0,
+        .outParam = 0,
+        .opcode = HanGuRnicDef::INIT_ICM
+    };
+    scheduleMailbox(mailElem);
 }
 
 
@@ -468,9 +519,24 @@ void NicCtrl::writeIcm(uint8_t rescType, Addr icmVPage) {
     icmResc.pageNum = ICM_ALLOC_PAGE_NUM; // now we support ICM_ALLOC_PAGE_NUM pages
     icmResc.vAddr   = icmVPage << 12;
     icmResc.pAddr   = icmAddrmap[icmVPage];
-    memcpy(mailbox.data, &icmResc, sizeof(HanGuRnicDef::InitResc));
+    //memcpy(mailbox.data, &icmResc, sizeof(HanGuRnicDef::InitResc));
     DPRINTF(NicCtrl, " pageNum %d, vAddr 0x%lx, pAddr 0x%lx\n", icmResc.pageNum, icmResc.vAddr, icmResc.pAddr);
-    postHcr((uint64_t)mailbox.addr, 1, rescType, HanGuRnicDef::WRITE_ICM);
+    //postHcr((uint64_t)mailbox.addr, 1, rescType, HanGuRnicDef::WRITE_ICM);
+    /* Alloc memBlock for mailbox data */
+    size_t size = sizeof(HanGuRnicDef::InitResc);
+    MemBlock memBlock = mailboxAlloc.allocMem(size);
+    Addr vaddr = memBlock.vaddr.start();
+    Addr paddr = memBlock.paddr.start();
+    memcpy((uint8_t *)vaddr, &icmResc, size);
+    MailElem mailElem = {
+        .src = vaddr,
+        .size = size,
+        .inParam = paddr,
+        .inMod = 1,
+        .outParam = rescType,
+        .opcode = HanGuRnicDef::WRITE_ICM
+    };
+    scheduleMailbox(mailElem);
 }
 
 /* -------------------------- ICM {end} ------------------------ */
@@ -520,9 +586,23 @@ void NicCtrl::writeMtt(struct kfd_ioctl_init_mtt_args *args) {
     for (uint32_t i = 0; i < args->batch_size; ++i) {
         mttResc[i].pAddr = args->paddr[i];
     }
-    memcpy(mailbox.data, mttResc, sizeof(HanGuRnicDef::MttResc) * args->batch_size);
-
-    postHcr((uint64_t)mailbox.addr, args->mtt_index, args->batch_size, HanGuRnicDef::WRITE_MTT);
+    //memcpy(mailbox.data, mttResc, sizeof(HanGuRnicDef::MttResc) * args->batch_size);
+    //postHcr((uint64_t)mailbox.addr, args->mtt_index, args->batch_size, HanGuRnicDef::WRITE_MTT);
+    /* Alloc memBlock for mailbox data */
+    size_t size = (sizeof(HanGuRnicDef::MttResc) * args->batch_size);
+    MemBlock memBlock = mailboxAlloc.allocMem(size);
+    Addr vaddr = memBlock.vaddr.start();
+    Addr paddr = memBlock.paddr.start();
+    memcpy((uint8_t *)vaddr, mttResc, size);
+    MailElem mailElem = {
+        .src = vaddr,
+        .size = size,
+        .inParam = paddr,
+        .inMod = args->mtt_index,
+        .outParam = args->batch_size,
+        .opcode = HanGuRnicDef::WRITE_MTT
+    };
+    scheduleMailbox(mailElem);
 }
 /* -------------------------- MTT {end} ------------------------ */
 
@@ -547,9 +627,23 @@ void NicCtrl::writeMpt(struct kfd_ioctl_write_mpt_args *args) {
         DPRINTF(NicCtrl, " HGKFD_IOC_WRITE_MPT: mpt_index %d(%d) mtt_index %d(%d) batch_size %d\n", 
                 args->mpt_index[i], mptResc[i].key, args->mtt_index[i], mptResc[i].mttSeg, args->batch_size);
     }
-    memcpy(mailbox.data, mptResc, sizeof(HanGuRnicDef::MptResc) * args->batch_size);
-
-    postHcr((uint64_t)mailbox.addr, args->mpt_index[0], args->batch_size, HanGuRnicDef::WRITE_MPT);
+    //memcpy(mailbox.data, mptResc, sizeof(HanGuRnicDef::MptResc) * args->batch_size);
+    //postHcr((uint64_t)mailbox.addr, args->mpt_index[0], args->batch_size, HanGuRnicDef::WRITE_MPT);
+    /* Alloc memBlock for mailbox data */
+    size_t size = (sizeof(HanGuRnicDef::MptResc) * args->batch_size);
+    MemBlock memBlock = mailboxAlloc.allocMem(size);
+    Addr vaddr = memBlock.vaddr.start();
+    Addr paddr = memBlock.paddr.start();
+    memcpy((uint8_t *)vaddr, mptResc, size);
+    MailElem mailElem = {
+        .src = vaddr,
+        .size = size,
+        .inParam = paddr,
+        .inMod = args->mpt_index[0],
+        .outParam = args->batch_size,
+        .opcode = HanGuRnicDef::WRITE_MPT
+    };
+    scheduleMailbox(mailElem);
 }
 /* -------------------------- MPT {end} ------------------------ */
 
@@ -566,8 +660,23 @@ void NicCtrl::writeCqc(struct kfd_ioctl_write_cqc_args *args) {
     cqcResc.lkey   = args->lkey    ;
     cqcResc.offset = args->offset  ;
     cqcResc.sizeLog= args->size_log;
-    memcpy(mailbox.data, &cqcResc, sizeof(HanGuRnicDef::CqcResc));
-    postHcr((uint64_t)mailbox.addr, args->cq_num, 0, HanGuRnicDef::WRITE_CQC);
+    //memcpy(mailbox.data, &cqcResc, sizeof(HanGuRnicDef::CqcResc));
+    //postHcr((uint64_t)mailbox.addr, args->cq_num, 0, HanGuRnicDef::WRITE_CQC);
+    /* Alloc memBlock for mailbox data */
+    size_t size = sizeof(HanGuRnicDef::CqcResc);
+    MemBlock memBlock = mailboxAlloc.allocMem(size);
+    Addr vaddr = memBlock.vaddr.start();
+    Addr paddr = memBlock.paddr.start();
+    memcpy((uint8_t *)vaddr, &cqcResc, size);
+    MailElem mailElem = {
+        .src = vaddr,
+        .size = size,
+        .inParam = paddr,
+        .inMod = args->cq_num,
+        .outParam = 0,
+        .opcode = HanGuRnicDef::WRITE_CQC
+    };
+    scheduleMailbox(mailElem);
 }
 /* -------------------------- CQC {end} ------------------------ */
 
@@ -617,9 +726,23 @@ void NicCtrl::writeQpc(struct kfd_ioctl_write_qpc_args *args) {
         DPRINTF(NicCtrl, " writeQpc: qpn: 0x%x\n", qpcResc[i].srcQpn);
     }
     DPRINTF(NicCtrl, " writeQpc: args->batch_size: %d\n", args->batch_size);
-    memcpy(mailbox.data, qpcResc, sizeof(HanGuRnicDef::QpcResc) * args->batch_size);
-    DPRINTF(NicCtrl, " writeQpc: args->batch_size1: %d\n", args->batch_size);
-    postHcr((uint64_t)mailbox.addr, args->src_qpn[0], args->batch_size, HanGuRnicDef::WRITE_QPC);
+    //memcpy(mailbox.data, qpcResc, sizeof(HanGuRnicDef::QpcResc) * args->batch_size);
+    //postHcr((uint64_t)mailbox.addr, args->src_qpn[0], args->batch_size, HanGuRnicDef::WRITE_QPC);
+    /* Alloc memBlock for mailbox data */
+    size_t size = sizeof(HanGuRnicDef::QpcResc) * args->batch_size;
+    MemBlock memBlock = mailboxAlloc.allocMem(size);
+    Addr vaddr = memBlock.vaddr.start();
+    Addr paddr = memBlock.paddr.start();
+    memcpy((uint8_t *)vaddr, qpcResc, size);
+    MailElem mailElem = {
+        .src = vaddr,
+        .size = size,
+        .inParam = paddr,
+        .inMod = args->src_qpn[0],
+        .outParam = args->batch_size,
+        .opcode = HanGuRnicDef::WRITE_QPC
+    };
+    scheduleMailbox(mailElem);
 }
 
 /* -------------------------- QPC {end} ------------------------ */
@@ -635,16 +758,22 @@ MemBlock MemAllocator::allocMem(size_t size) {
     Addr paddrStart, paddrEnd;
     Addr vaddrStart = (Addr) (new uint8_t[size]);
     Addr vaddrEnd = vaddrStart + size - 1;
-    auto it = memMap.begin();
 
+    recycleMem();
+
+    auto it = memMap.begin();
     for (it; std::next(it, 1) != memMap.end(); it++) {
         if (it->paddr.end() + size < std::next(it, 1)->paddr.start()) {
-            paddrStart = it->paddr.end() + 1;
-            paddrEnd = paddrStart + size - 1;
             break;
         }
     }
+    paddrStart = it->paddr.end() + 1;
+    paddrEnd = paddrStart + size - 1;
+    DPRINTF(MemAlloc, "Allocated: V (0x%lx, 0x%lx) <> P (0x%lx, 0x%lx)\n",
+            vaddrStart, vaddrEnd, paddrStart, paddrEnd);
+
     MemBlock memBlock = {
+        .isValid = true,
         .vaddr = AddrRange(vaddrStart, vaddrEnd),
         .paddr = AddrRange(paddrStart, paddrEnd)
     };
@@ -653,9 +782,9 @@ MemBlock MemAllocator::allocMem(size_t size) {
     return memBlock;
 }
 
-void MemAllocator::destroyMem(MemBlock *memBlock) {
-    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
-        if ((MemBlock *)&(*it) == memBlock) {
+void MemAllocator::recycleMem() {
+    for (auto it = memMap.begin(); it != memMap.end(); it++) {
+        if (! it->isValid) {
             memMap.erase(it);
         }
     }
@@ -699,7 +828,12 @@ Addr MemAllocator::getVirAddr(Addr paddr) {
             vaddr = it->vaddr.start() + idx;
         }
     }
+    DPRINTF(MemAlloc, "Memory paddr %ld is mapped to vaddr %ld\n", paddr, vaddr);
     return vaddr;
+}
+
+uint64_t MemAllocator::getSize() {
+    return memMap.size();
 }
 
 /******************************* MemAllocator ***************************/

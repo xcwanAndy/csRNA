@@ -25,7 +25,9 @@
 #ifndef __NIC_CTRL_HH__
 #define __NIC_CTRL_HH__
 
+#include <cstdint>
 #include <deque>
+#include <iterator>
 #include <queue>
 #include <string>
 #include <list>
@@ -42,6 +44,7 @@
 #include "dev/net/etherpkt.hh"
 #include "dev/net/pktfifo.hh"
 #include "dev/pci/device.hh"
+#include "params/SrcClockDomain.hh"
 #include "sim/syscall_emul_buf.hh"
 #include "sim/sim_object.hh"
 #include "params/NicCtrl.hh"
@@ -49,6 +52,7 @@
 using namespace HanGuRnicDef;
 
 typedef struct {
+    bool isValid;
     AddrRange vaddr;
     AddrRange paddr;
 }MemBlock;
@@ -63,6 +67,7 @@ class MemAllocator {
         MemAllocator(Addr deviceAddr) {
             baseAddr = deviceAddr;
             MemBlock initBlock = {
+                .isValid = true,
                 .vaddr = AddrRange(0, 0),
                 .paddr = AddrRange(baseAddr, baseAddr)
             };
@@ -75,7 +80,7 @@ class MemAllocator {
          */
         MemBlock allocMem(size_t size);
 
-        void destroyMem(MemBlock *block);
+        void recycleMem();
 
         /* Get MemBlock from physical addr
          */
@@ -92,6 +97,8 @@ class MemAllocator {
         /* Get virtual addr from physical addr
          */
         Addr getVirAddr(Addr paddr);
+
+        uint64_t getSize();
 };
 
 class NicCtrl : public PciDevice {
@@ -99,6 +106,7 @@ class NicCtrl : public PciDevice {
         HanGuRnic *rnic;
         Addr hcrAddr;
         Addr doorBell;
+        MemAllocator mailboxAlloc;
         MemAllocator memAlloc;
 
     public:
@@ -116,10 +124,13 @@ class NicCtrl : public PciDevice {
         MemAllocator *getMemAlloc(){ return &memAlloc; }
 
         // Control Interface
-        int nicCtrl();
-        EventFunctionWrapper nicCtrlEvent;
-        unsigned nicCtrlReq;
-        void *ioc_buf;
+        //int nicCtrl();
+        int nicCtrl(unsigned nicCtrlReq, void * ioc_buf);
+        //EventFunctionWrapper nicCtrlEvent;
+        //unsigned nicCtrlReq;
+        std::queue<unsigned> nicCtrlReqFifo;
+        //void *ioc_buf;
+        std::queue<void *> ioc_buf_fifo;
 
         // PIO Interface
         Tick writeConfig(PacketPtr pkt) override;
@@ -127,13 +138,23 @@ class NicCtrl : public PciDevice {
         Tick write(PacketPtr pkt) override;
 
         // mailbox;
-        struct Mailbox {
-            Addr addr;
-            uint8_t *data;
-        };
-        Mailbox mailbox;
-        Addr mailboxBase = 0xd100000000000000;
-        void initMailbox();
+        typedef struct {
+            Addr src;
+            uint64_t size;
+            uint64_t inParam;
+            uint32_t inMod;
+            uint64_t outParam;
+            uint8_t opcode;
+        }MailElem;
+
+        Addr mailboxBase;
+        AddrRange mailboxRange;
+        //void initMailbox();
+        void scheduleMailbox(MailElem mailElem);
+        std::queue<MailElem> mailFifo;
+
+        EventFunctionWrapper sendMailEvent;
+        void sendMail();
 
         // Resc
         struct RescMeta {
@@ -149,7 +170,7 @@ class NicCtrl : public PciDevice {
 
         // ICM
         std::unordered_map<Addr, Addr> icmAddrmap; // <icm vaddr page, icm paddr>
-        Addr icmBase = 0xd200000000000000;
+        //Addr icmBase = 0xd200000000000000;
         void initIcm(uint8_t qpcNumLog, uint8_t cqcNumLog,
             uint8_t mptNumLog, uint8_t mttNumLog);
         uint8_t isIcmMapped(RescMeta &rescMeta, Addr index);

@@ -82,16 +82,16 @@ struct ibv_wqe *IbvTest::init_rdma_write_wqe (struct Resource *res, struct ibv_m
     DPRINTF(IbvTest, "[test requester] init_snd_wqe: string is %s, string vaddr is 0x%lx, start vaddr is 0x%lx\n",
                 string, (uint64_t)string, (uint64_t)(lmr->addr + offset));
 
-    for (int i = 0; i < res->num_wqe; ++i, wqe = (wqe + 1)) {
+    for (int i = 0; i < res->num_wqe; ++i) {
 
-        wqe->length = sizeof(RDMA_WRITE_DATA);
-        wqe->mr = lmr;
-        wqe->offset = offset;
+        wqe[i].length = sizeof(RDMA_WRITE_DATA);
+        wqe[i].mr = lmr;
+        wqe[i].offset = offset;
 
         // Add RDMA Write element
-        wqe->trans_type = IBV_TYPE_RDMA_WRITE;
-        wqe->rdma.raddr = raddr;
-        wqe->rdma.rkey  = rkey;
+        wqe[i].trans_type = IBV_TYPE_RDMA_WRITE;
+        wqe[i].rdma.raddr = raddr;
+        wqe[i].rdma.rkey  = rkey;
     }
     return wqe;
 }
@@ -189,12 +189,15 @@ struct Resource *IbvTest::resc_init(uint16_t llid, int msg_size, int num_qp, int
     cq_attr.size_log = 12;
     struct ibv_cq * cq = ibv->ibv_create_cq(&(res->ctx), &cq_attr);
     DPRINTF(IbvTest, "[test requester] ibv_create_cq End! cqn %d\n", cq->cq_num);
+    res->cq = cq;
 
     struct ibv_qp_create_attr qp_attr;
     qp_attr.sq_size_log = 12;
     qp_attr.rq_size_log = 12;
     struct ibv_qp * qp = ibv->ibv_create_qp(&(res->ctx), &qp_attr);
     DPRINTF(IbvTest, "[test requester] ibv_create_qp end! qpn %d\n", qp->qp_num);
+    res->qp = (ibv_qp **)malloc(res->num_qp * sizeof(ibv_qp *));
+    res->qp[0] = qp;
     return res;
 }
 
@@ -249,7 +252,6 @@ int IbvTest::main () {
     // }
 
     return 0;
-
 }
 
 /* This function is compulsory */

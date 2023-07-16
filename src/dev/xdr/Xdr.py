@@ -39,6 +39,9 @@ class NicCtrl(PciDevice):
     # rnic as a parameter
     rnic = Param.HanGuRnic("HanGu Rnic")
 
+    base_addr = Param.Addr(0xD000000000000000,
+                          "Base Addr")
+
     mpt_cache_num = Param.Int(40000,
         "Number of mpt cache enteries")
     mtt_cache_num = Param.Int(50000,

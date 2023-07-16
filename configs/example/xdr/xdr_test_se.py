@@ -191,13 +191,13 @@ def main():
     system.intrctrl = IntrControl()
 
     # NIC Controller Platform
-    system.ctrl_platform = NicCtrlPlatform()
-    system.ctrl_platform.nic_ctrl.rnic = system.nic_platform.rdma_nic
-    system.ctrl_platform.nic_ctrl.pci_speed = options.pci_linkspeed
+    # system.ctrl_platform = NicCtrlPlatform()
+    system.nic_platform.nic_ctrl.rnic = system.nic_platform.rdma_nic
+    system.nic_platform.nic_ctrl.pci_speed = options.pci_linkspeed
     # Attach NIC Controller to iobus
-    system.ctrl_platform.attachIO(system.iobus)
+    # system.nic_platform.attachIO(system.iobus)
 
-    system.ibv.nicCtrl = system.ctrl_platform.nic_ctrl
+    system.ibv.nicCtrl = system.nic_platform.nic_ctrl
 
     process = Process(pid = 100)
     process.executable = APP
@@ -206,8 +206,8 @@ def main():
     system.cpu[0].workload = process
     system.cpu[0].createThreads()
 
-    for cpu in system.cpu:
-        cpu.wait_for_remote_gdb = True
+    # for cpu in system.cpu:
+        # cpu.wait_for_remote_gdb = True
 
     # root = make_root_system(rnic_sys, options.ethernet_linkspeed)
     root = Root(full_system=False, system=system)

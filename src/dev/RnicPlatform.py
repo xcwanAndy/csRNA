@@ -24,6 +24,7 @@ from m5.params import *
 from m5.proxy import *
 
 from m5.objects.Rnic import HanGuRnic
+from m5.objects.Xdr import NicCtrl
 from m5.objects.Platform import Platform
 from m5.objects.PciHost import GenericPciHost
 
@@ -43,9 +44,12 @@ class RnicPlatform(Platform):
     pci_host = RnicPciHost()
 
     rdma_nic = HanGuRnic(pci_bus=0, pci_dev=0, pci_func=0)
-    
+
+    nic_ctrl = NicCtrl(pci_bus=1, pci_dev=1, pci_func=1)
+
     def attachIO(self, bus):
         self.pci_host.pio = bus.default
         self.rdma_nic.pio = bus.mem_side_ports
         self.rdma_nic.dma = bus.cpu_side_ports
-        
+        self.nic_ctrl.pio = bus.mem_side_ports
+        self.nic_ctrl.dma = bus.cpu_side_ports
