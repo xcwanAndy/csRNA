@@ -28,10 +28,12 @@
 
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <queue>
 
 #include "base/inet.hh"
+#include "base/statistics.hh"
 #include "base/trace.hh"
 #include "base/random.hh"
 #include "debug/Drain.hh"
@@ -318,8 +320,11 @@ HanGuRnic::mboxFetchCpl () {
         panic("Bad inputed command.\n");
     }
     regs.cmdCtrl.go(0); // Set command indicator as finished.
-
     HANGU_PRINT(CcuEngine, " CcuEngine.CEU.mboxFetchCpl: `GO` bit is down!\n");
+
+    /* Send mail Replay to nic_ctrl */
+    uint8_t opcode = regs.cmdCtrl.op();
+    dmaWrite(0xd000000000000000, sizeof(uint8_t), nullptr, &opcode);
 
     // delete[] mboxBuf;
 }

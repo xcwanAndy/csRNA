@@ -541,8 +541,11 @@ class HanGuRnic : public RdmaNic {
         void icmStore(IcmResc *icmResc, uint32_t chunkNum) {
             for (int i = 0; i < chunkNum; ++i) {
                 uint32_t idx = (icmResc[i].vAddr - baseAddr) >> 12;
+                DPRINTF(HanGuRnic, "[IcmManage] mbox content: baseAddr 0x%lx, idx 0x%lx\n", baseAddr, idx);
+                DPRINTF(HanGuRnic, "[IcmManage] mbox content: vaddr 0x%lx\n", icmResc[i].vAddr);
                 while (icmResc[i].pageNum) {
                     icmPage[idx] = icmResc[i].pAddr;
+                    DPRINTF(HanGuRnic, "[IcmManage] mbox content: pAddr 0x%lx\n", icmResc[i].pAddr);
 
                     /* Update param */
                     --icmResc[i].pageNum;

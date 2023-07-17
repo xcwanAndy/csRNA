@@ -147,7 +147,6 @@ class NicCtrl : public PciDevice {
             uint8_t opcode;
         }MailElem;
 
-        Addr mailboxBase;
         AddrRange mailboxRange;
         //void initMailbox();
         void scheduleMailbox(MailElem mailElem);
@@ -155,6 +154,10 @@ class NicCtrl : public PciDevice {
 
         EventFunctionWrapper sendMailEvent;
         void sendMail();
+        uint8_t pendMailRecord;
+
+        EventFunctionWrapper wait2SendEvent;
+        void wait2Send();
 
         // Resc
         struct RescMeta {

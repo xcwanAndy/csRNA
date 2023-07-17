@@ -37,6 +37,7 @@
 
 #include "base/inet.hh"
 #include "dev/pci/device.hh"
+#include "sim/eventq.hh"
 #include "sim/sim_object.hh"
 #include "sim/syscall_emul_buf.hh"
 #include "params/NicCtrl.hh"
@@ -392,7 +393,18 @@ class Ibv : public SimObject{
 
         MemAllocator *memAlloc;
 
-        void wait(uint32_t n);
+        typedef struct {
+            Addr addr;
+            size_t size;
+            uint64_t doorbell;
+        } DbellElem;
+        std::queue<DbellElem> dbellFifo;
+        EventFunctionWrapper sendDooebellEvent;
+        void sendDoorbell();
+
+        EventFunctionWrapper waitMailReplyEvent;
+        void waitMailReply();
+
         uint8_t write_cmd(unsigned long request, void *args);
 
         /* Infiniband verbs

@@ -31,6 +31,7 @@
 
 #include "base/addr_range.hh"
 #include "base/inet.hh"
+#include "base/statistics.hh"
 #include "base/trace.hh"
 #include "base/random.hh"
 #include "debug/Drain.hh"
@@ -46,15 +47,45 @@
 
 Ibv::Ibv(const Params *p)
     : SimObject(p),
-    nicCtrl(p->nicCtrl){
+    nicCtrl(p->nicCtrl),
+    sendDooebellEvent([this] {sendDoorbell();}, name()),
+    waitMailReplyEvent([this] {waitMailReply();}, name())
+{
         DPRINTF(Ibv, " Initializing Ibv\n");
         memAlloc = nicCtrl->getMemAlloc();
-    }
+}
 
 Ibv::~Ibv(){}
 
-void Ibv::wait(uint32_t n) {
-    for (uint32_t i = 0; i < n; ++i);
+void Ibv::waitMailReply() {
+    if (dbellFifo.size()) {
+        //DPRINTF(Ibv, "Waiting for mail replay, pendMailRecord:0x%x, mailFifo: %d\n",
+                //nicCtrl->pendMailRecord, nicCtrl->mailFifo.size());
+        if (nicCtrl->pendMailRecord != 0 || nicCtrl->mailFifo.size()) {
+            /* Mails not finish */
+            if (! waitMailReplyEvent.scheduled()) {
+                schedule(waitMailReplyEvent, curTick() + nicCtrl->clockPeriod());
+            }
+        } else {
+            /* Mails finished */
+            schedule(sendDooebellEvent, curTick() + nicCtrl->clockPeriod());
+        }
+    }
+}
+
+void Ibv::sendDoorbell() {
+    assert(dbellFifo.size());
+    DbellElem dbellElem = dbellFifo.front();
+    dbellFifo.pop();
+
+    DPRINTF(Ibv, "Send doorbell:\n"
+            "Addr: 0x%x,\n"
+            "Size: %d,\n"
+            "Doorbell: 0x%x\n",
+            dbellElem.addr,
+            dbellElem.size,
+            dbellElem.doorbell);
+    nicCtrl->dmaWrite(dbellElem.addr, dbellElem.size, nullptr, (uint8_t *)&(dbellElem.doorbell));
 }
 
 
@@ -546,7 +577,13 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
             uint32_t db_high = (qp->qp_num << 8) | snd_cnt;
             doorbell = ((uint64_t)db_high << 32) | db_low;
             DPRINTF(Ibv, "doorbell addr: %ld, doorbell: %ld\n", doorbell_addr, doorbell);
-            nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)&doorbell);
+            DbellElem dbElem = {
+                .addr = doorbell_addr,
+                .size = 8,
+                .doorbell = doorbell
+            };
+            dbellFifo.push(dbElem);
+            //nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)&doorbell);
 
             sq_head = 0;
             first_trans_type = (i == num - 1) ? IBV_TYPE_NULL : wqe[i+1].trans_type;
@@ -569,16 +606,25 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
         uint32_t db_high = (qp->qp_num << 8) | snd_cnt;
         doorbell = ((uint64_t)db_high << 32) | db_low;
         DPRINTF(Ibv, "doorbell addr: %ld, doorbell: %ld\n", doorbell_addr, doorbell);
-        nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)&doorbell);
-
+        DbellElem dbElem = {
+            .addr = doorbell_addr,
+            .size = 8,
+            .doorbell = doorbell
+        };
+        dbellFifo.push(dbElem);
+        //nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)&doorbell);
         // HGRNIC_PRINT(" db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
+    }
+
+    if (! waitMailReplyEvent.scheduled()) {
+        schedule(waitMailReplyEvent, curTick() + nicCtrl->clockPeriod());
     }
 
     return 0;
 }
 
 int Ibv::ibv_post_recv(struct ibv_context *context, struct ibv_wqe *wqe, struct ibv_qp *qp, uint8_t num) {
-    struct hghca_context *dvr = (struct hghca_context *)context->dvr;
+    //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
     // struct Doorbell *boorbell = dvr->doorbell;
 
     struct recv_desc *rx_desc;

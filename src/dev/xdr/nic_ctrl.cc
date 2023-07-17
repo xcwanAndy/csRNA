@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <memory>
@@ -50,12 +51,13 @@ using namespace std;
 NicCtrl::NicCtrl(const Params *p)
     : PciDevice(p),
     rnic(p->rnic),
-    mailboxAlloc(p->base_addr),
-    memAlloc(p->base_addr + (MAILBOX_PAGE_NUM << 12) * 64),
-    mailboxBase(p->base_addr),
-    mailboxRange(0, (MAILBOX_PAGE_NUM << 12) * 64),
+    /* The first 8 bits are used for mail reply */
+    mailboxAlloc(p->base_addr + sizeof(uint8_t)),
+    memAlloc(p->base_addr + sizeof(uint8_t) + (MAILBOX_PAGE_NUM << 12) * 64),
+    mailboxRange(sizeof(uint8_t), sizeof(uint8_t) + (MAILBOX_PAGE_NUM << 12) * 64),
     //nicCtrlEvent([this]{ nicCtrl(); }, name())
-    sendMailEvent([this]{ sendMail(); }, name())
+    sendMailEvent([this]{ sendMail(); }, name()),
+    wait2SendEvent([this]{ wait2Send(); }, name())
 {
 
         DPRINTF(NicCtrl, " qpc_cache_cap %d  reorder_cap %d cpuNum 0x%x\n",
@@ -69,6 +71,8 @@ NicCtrl::NicCtrl(const Params *p)
         AddrRange bar0 = addr_list.front(); // Get BAR0
         hcrAddr = bar0.start();
         doorBell = hcrAddr + 0x18;
+
+        pendMailRecord = 0;
 } // NicCtrl::NicCtrl
 
 NicCtrl::~NicCtrl() {
@@ -307,9 +311,9 @@ Tick NicCtrl::read(PacketPtr pkt) {
 Tick NicCtrl::write(PacketPtr pkt) {
     int bar;
     Addr daddr;
+    uint8_t mailReply;
 
-    DPRINTF(PioEngine, "************** This is the NicCtrl::write ! *******************\n");
-
+    //DPRINTF(PioEngine, "************** This is the NicCtrl::write ! *******************\n");
     DPRINTF(PioEngine, " PioEngine.write: pkt addr 0x%x, size 0x%x\n",
             pkt->getAddr(), pkt->getSize());
 
@@ -320,11 +324,12 @@ Tick NicCtrl::write(PacketPtr pkt) {
     /* Only BAR 0 is allowed */
     assert(bar == 0);
 
-    if (daddr == 0 && pkt->getSize() == sizeof(Hcr)) {
-        DPRINTF(PioEngine,
-                " PioEngine.write: HCR, inparam: 0x%x\n",
-                pkt->getLE<Hcr>().inParam_l);
+    if (daddr == 0 && pkt->getSize() == sizeof(uint8_t)) {
+        mailReply = pkt->getLE<uint8_t>();
+        DPRINTF(PioEngine, " PioEngine.write: mailReply 0x%x\n", mailReply);
     }
+
+    pendMailRecord &= ~(1 << mailReply);
 
     pkt->makeAtomicResponse();
     return pioDelay;
@@ -338,8 +343,7 @@ uint8_t NicCtrl::checkHcr() {
 
     uint32_t goOp;
     // DPRINTF(NicCtrl, " Start read `GO`.\n");
-    dmaRead(hcrAddr + (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode),
-            sizeof(goOp), nullptr, (uint8_t *)&goOp);
+    dmaRead(hcrAddr + (Addr)&(((HanGuRnicDef::Hcr*)0)->goOpcode), sizeof(goOp), nullptr, (uint8_t *)&goOp);
 
     if ((goOp >> 31) == 1) {
         // DPRINTF(NicCtrl, " `GO` is still high\n");
@@ -388,8 +392,25 @@ void NicCtrl::postHcr(uint64_t inParam,
 
 void NicCtrl::scheduleMailbox(MailElem mailElem){
     mailFifo.push(mailElem);
-    if (! sendMailEvent.scheduled()) {
-        schedule(sendMailEvent, curTick() + clockPeriod());
+    if (! wait2SendEvent.scheduled()) {
+        schedule(wait2SendEvent, curTick() + clockPeriod());
+    }
+}
+
+void NicCtrl::wait2Send() {
+    if (mailFifo.size()) {
+        if (pendMailRecord == 0) {
+            pendMailRecord |= (1 << mailFifo.front().opcode);
+            /* Ready to schedule */
+            if (! sendMailEvent.scheduled()) {
+                schedule(sendMailEvent, curTick() + clockPeriod());
+            }
+        } else {
+            /* Stay waiting */
+            if (! wait2SendEvent.scheduled()) {
+                schedule(wait2SendEvent, curTick() + clockPeriod());
+            }
+        }
     }
 }
 
@@ -400,9 +421,8 @@ void NicCtrl::sendMail(){
     mailFifo.pop();
 
     postHcr(mailElem.inParam, mailElem.inMod, mailElem.outParam, mailElem.opcode);
-
-    if (!mailFifo.empty() && !sendMailEvent.scheduled()) {
-        schedule(sendMailEvent, curTick() + clockPeriod());
+    if (!wait2SendEvent.scheduled() && mailFifo.size()) {
+        schedule(wait2SendEvent, curTick() + clockPeriod());
     }
 }
 
@@ -785,6 +805,8 @@ MemBlock MemAllocator::allocMem(size_t size) {
 void MemAllocator::recycleMem() {
     for (auto it = memMap.begin(); it != memMap.end(); it++) {
         if (! it->isValid) {
+            DPRINTF(MemAlloc, "Recycling: V (0x%lx, 0x%lx) <> P (0x%lx, 0x%lx)\n",
+                    it->vaddr.start(), it->vaddr.end() , it->paddr.start(), it->paddr.end());
             memMap.erase(it);
         }
     }
@@ -792,43 +814,53 @@ void MemAllocator::recycleMem() {
 }
 
 MemBlock* MemAllocator::getPhyBlock(Addr paddr) {
-    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
-        if (it->paddr.contains(paddr)) {
+    for (auto it = memMap.begin(); it != memMap.end(); it++) {
+        if (paddr >= it->paddr.start() && paddr <= it->paddr.end()) {
             return (MemBlock*)&(*it);
         }
     }
-    return NULL;
+    panic("[ERROR] Cannot find block for 0x%x\n", paddr);
 }
 
 MemBlock* MemAllocator::getVirBlock(Addr vaddr) {
-    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
-        if (it->vaddr.contains(vaddr)) {
+    for (auto it = memMap.begin(); it != memMap.end(); it++) {
+        if (vaddr >= it->vaddr.start() && vaddr <= it->vaddr.end()) {
             return (MemBlock*)&(*it);
         }
     }
-    return NULL;
+    panic("[ERROR] Cannot find block for 0x%x\n", vaddr);
 }
 
 Addr MemAllocator::getPhyAddr(Addr vaddr) {
     Addr paddr;
-    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
-        if (it->vaddr.contains(vaddr)) {
+    auto it = memMap.begin();
+    for (; it != memMap.end(); it++) {
+        if (vaddr >= it->vaddr.start() && vaddr <= it->vaddr.end()) {
             uint64_t idx = vaddr - it->vaddr.start();
             paddr = it->paddr.start() + idx;
+            break;
         }
+    }
+    if (it == memMap.end()) {
+        panic("[ERROR] Vaddr %lx cannot be mapped!", vaddr);
     }
     return paddr;
 }
 
 Addr MemAllocator::getVirAddr(Addr paddr) {
     Addr vaddr;
-    for (auto it = memMap.begin(); std::next(it, 1) != memMap.end(); it++) {
-        if (it->paddr.contains(paddr)) {
+    auto it = memMap.begin();
+    for (; it != memMap.end(); it++) {
+        if (paddr >= it->paddr.start() && paddr <= it->paddr.end()) {
             uint64_t idx = paddr - it->paddr.start();
             vaddr = it->vaddr.start() + idx;
+            break;
         }
     }
-    DPRINTF(MemAlloc, "Memory paddr %ld is mapped to vaddr %ld\n", paddr, vaddr);
+    if (it == memMap.end()) {
+        panic("[ERROR] Paddr %lx cannot be mapped!", paddr);
+    }
+    DPRINTF(MemAlloc, "Memory paddr 0x%lx is mapped to vaddr 0x%lx\n", paddr, vaddr);
     return vaddr;
 }
 
