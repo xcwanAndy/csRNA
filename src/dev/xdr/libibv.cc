@@ -590,8 +590,7 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
             snd_cnt = 0;
             qp->snd_wqe_offset = 0; /* SQ MR is allocated in page, so
                                      * the start address (offset) is 0 */
-
-             DPRINTF(Ibv, " 1db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
+            DPRINTF(Ibv, " 1db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
         }
 
          uint8_t *u8_tmp = (uint8_t *)tx_desc;
@@ -616,7 +615,7 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
         // HGRNIC_PRINT(" db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
     }
 
-    if (! waitMailReplyEvent.scheduled()) {
+    if (!waitMailReplyEvent.scheduled()) {
         schedule(waitMailReplyEvent, curTick() + nicCtrl->clockPeriod());
     }
 
@@ -648,7 +647,6 @@ int Ibv::ibv_post_recv(struct ibv_context *context, struct ibv_wqe *wqe, struct 
                                      * the start address (offset) is 0 */
         }
     }
-
     return 0;
 }
 

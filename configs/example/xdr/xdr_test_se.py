@@ -35,7 +35,7 @@ from m5.util import addToPath, fatal, warn
 
 from m5.objects.PciHost import *
 from m5.objects.Rnic import HanGuRnic, HanGuDriver
-from m5.objects.Xdr import NicCtrl, Ibv, IbvTest
+from m5.objects.Xdr import NicCtrl, Ibv, IbvTestClient, IbvTestServer
 
 
 addToPath('../../')
@@ -56,50 +56,7 @@ APP = "tests/test-progs/nic-ctrl/bin/loop"
 # def config_rnic(system, options, node_num):
 
 
-# def make_hangu_nic_system(options, CPUClass, test_mem_mode, \
-                        # node_num):
-
-# def make_root_system(rnicsys, en_bw):
-
-def get_hangu_rnic_options():
-    parser = optparse.OptionParser()
-    Options.addCommonOptions(parser)
-    Options.addSEOptions(parser)
-    parser.add_option("--node-num", type="int", action="store", default=2,
-                      help="""The options to pass to the binary, use " "
-                              around the entire string""")
-    parser.add_option("--pci-linkspeed", default="10Gbps",
-                        action="store", type="string",
-                        help="Link speed in bps\nDEFAULT: 10Gbps")
-    parser.add_option("--qpc-cache-cap", default=50,
-                        action="store", type="int",
-                        help="capacity of qpc cache\nDEFAULT: 50 entries")
-    parser.add_option("--reorder-cap", default=100,
-                        action="store", type="int",
-                        help="capacity of qpc cache\nDEFAULT: 50 entries")
-
-    (options, args) = parser.parse_args()
-
-    if args:
-        print("Error: script doesn't take any positional arguments")
-        sys.exit(1)
-
-    print(options)
-    return options
-
-
-def main():
-    # Add options
-    options = get_hangu_rnic_options()
-
-    (CPUClass, test_mem_mode, FutureClass) = Simulation.setCPUClass(options)
-
-    # # input ethernet and pci link speed
-    # en_bw  = options.ethernet_linkspeed
-    # pci_bw = options.pci_linkspeed
-    # qpc_cache_cap = options.qpc_cache_cap
-    # reorder_cap   = options.reorder_cap
-
+def make_nic_system(options, CPUClass, test_mem_mode, is_client=False):
     system = System(cpu = [CPUClass(socket_id=i, cpu_id=i,
                                     numThreads=1, syscallRetryLatency=200)
                            for i in range(0,1)],
@@ -168,9 +125,13 @@ def main():
     system.dmabridge.slave = system.iobus.master
     system.dmabridge.master = system.membus.slave
 
-    mac_addr = 0xaabbccdd
+    if (is_client):
+        mac_addr = 0xaabbccdd
+        system.ibv_test = IbvTestClient()
+    else:
+        mac_addr = 0x11223344
+        system.ibv_test = IbvTestServer()
 
-    system.ibv_test = IbvTest()
     system.ibv = Ibv()
     system.ibv_test.ibv = system.ibv
 
@@ -191,14 +152,12 @@ def main():
     system.intrctrl = IntrControl()
 
     # NIC Controller Platform
-    # system.ctrl_platform = NicCtrlPlatform()
     system.nic_platform.nic_ctrl.rnic = system.nic_platform.rdma_nic
     system.nic_platform.nic_ctrl.pci_speed = options.pci_linkspeed
-    # Attach NIC Controller to iobus
-    # system.nic_platform.attachIO(system.iobus)
 
     system.ibv.nicCtrl = system.nic_platform.nic_ctrl
 
+    # Set process
     process = Process(pid = 100)
     process.executable = APP
     process.cwd = os.getcwd()
@@ -206,12 +165,67 @@ def main():
     system.cpu[0].workload = process
     system.cpu[0].createThreads()
 
+    return system
+
+
+def make_root_system(client, server, en_bw):
+    self = Root(full_system = False)
+    self.svrsys = server
+    self.cltsys = client
+
+    self.etherswitch = EtherSwitch()
+    self.etherswitch.fabric_speed = en_bw
+    self.etherswitch.delay = "0us" # We don't use the delay mechanism in etherswitch
+    self.etherswitch.time_to_live = "100s" # don't consider MAC addr mapping TTL
+
+    self.etherswitch.interface = client.nic_platform.rdma_nic.interface
+    self.etherswitch.interface = server.nic_platform.rdma_nic.interface
+
+    return self
+
+def get_hangu_rnic_options():
+    parser = optparse.OptionParser()
+    Options.addCommonOptions(parser)
+    Options.addSEOptions(parser)
+    parser.add_option("--node-num", type="int", action="store", default=2,
+                      help="""The options to pass to the binary, use " "
+                              around the entire string""")
+    parser.add_option("--pci-linkspeed", default="10Gbps",
+                        action="store", type="string",
+                        help="Link speed in bps\nDEFAULT: 10Gbps")
+    parser.add_option("--qpc-cache-cap", default=50,
+                        action="store", type="int",
+                        help="capacity of qpc cache\nDEFAULT: 50 entries")
+    parser.add_option("--reorder-cap", default=100,
+                        action="store", type="int",
+                        help="capacity of qpc cache\nDEFAULT: 50 entries")
+
+    (options, args) = parser.parse_args()
+
+    if args:
+        print("Error: script doesn't take any positional arguments")
+        sys.exit(1)
+
+    print(options)
+    return options
+
+
+def main():
+    # Add options
+    options = get_hangu_rnic_options()
+
+    (CPUClass, test_mem_mode, FutureClass) = Simulation.setCPUClass(options)
+
+    client_system = make_nic_system(options, CPUClass, test_mem_mode, True)
+
+    server_system = make_nic_system(options, CPUClass, test_mem_mode, False)
+
     # for cpu in system.cpu:
         # cpu.wait_for_remote_gdb = True
 
-    # root = make_root_system(rnic_sys, options.ethernet_linkspeed)
-    root = Root(full_system=False, system=system)
-    Simulation.run(options, root, system, FutureClass)
+    root = make_root_system(client_system, server_system, options.ethernet_linkspeed)
+
+    Simulation.run(options, root, server_system, FutureClass)
 
 if __name__ == "__m5_main__":
     main()

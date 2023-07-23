@@ -90,7 +90,12 @@ class Ibv(SimObject):
     nicCtrl = Param.NicCtrl("Rnic Controller")
 
 
-class IbvTest(SimObject):
-    type = 'IbvTest'
-    cxx_header = "dev/xdr/ibv_test.hh"
+class IbvTestClient(SimObject):
+    type = 'IbvTestClient'
+    cxx_header = "dev/xdr/ibv_test_client.hh"
+    ibv = Param.Ibv("IB Verbs")
+
+class IbvTestServer(SimObject):
+    type = 'IbvTestServer'
+    cxx_header = "dev/xdr/ibv_test_server.hh"
     ibv = Param.Ibv("IB Verbs")

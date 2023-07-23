@@ -32,12 +32,14 @@ SimObject('Xdr.py')
 # NIC controller
 Source('nic_ctrl.cc')
 Source('libibv.cc')
-Source('ibv_test.cc')
+Source('ibv_test_client.cc')
+Source('ibv_test_server.cc')
 
 
 DebugFlag('NicCtrl')
 DebugFlag('MemAlloc')
 DebugFlag('Ibv')
-DebugFlag('IbvTest')
+DebugFlag('IbvTestClient')
+DebugFlag('IbvTestServer')
 
-CompoundFlag('XDR', ['NicCtrl', 'MemAlloc', 'Ibv', 'IbvTest'])
+CompoundFlag('XDR', ['NicCtrl', 'MemAlloc', 'Ibv', 'IbvTestClient', 'IbvTestServer'])
