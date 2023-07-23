@@ -55,9 +55,9 @@ def execute_program(debug, test_prog, option, params):
 
     for cmd in cmd_list:
         print(cmd)
-        rtn = os.system(cmd)
-        if rtn != 0:
-            raise Exception("\033[0;31;40mError for cmd " + cmd + "\033[0m")
+        # rtn = os.system(cmd)
+        # if rtn != 0:
+            # raise Exception("\033[0;31;40mError for cmd " + cmd + "\033[0m")
         time.sleep(0.1)
 
 def main():

@@ -324,12 +324,18 @@ Tick NicCtrl::write(PacketPtr pkt) {
     /* Only BAR 0 is allowed */
     assert(bar == 0);
 
+    Addr paddr = pkt->getAddr();
     if (daddr == 0 && pkt->getSize() == sizeof(uint8_t)) {
         mailReply = pkt->getLE<uint8_t>();
         DPRINTF(PioEngine, " PioEngine.write: mailReply 0x%x\n", mailReply);
+        pendMailRecord &= ~(1 << mailReply);
+    } else if (mailboxRange.contains(daddr)) {
+        DPRINTF(PioEngine, " Write to mailbox: not implemented!");
+    } else {
+        Addr vaddr = memAlloc.getVirAddr(paddr);
+        memcpy((uint8_t *)vaddr, pkt->getPtr<uint8_t>(), pkt->getSize());
+        DPRINTF(PioEngine, " PioEngine.write: Writing data to 0x%x\n", vaddr);
     }
-
-    pendMailRecord &= ~(1 << mailReply);
 
     pkt->makeAtomicResponse();
     return pioDelay;

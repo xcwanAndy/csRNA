@@ -126,10 +126,10 @@ def make_nic_system(options, CPUClass, test_mem_mode, is_client=False):
     system.dmabridge.master = system.membus.slave
 
     if (is_client):
-        mac_addr = 0xaabbccdd
+        mac_addr = 0x11
         system.ibv_test = IbvTestClient()
     else:
-        mac_addr = 0x11223344
+        mac_addr = 0x22
         system.ibv_test = IbvTestServer()
 
     system.ibv = Ibv()

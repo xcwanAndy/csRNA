@@ -576,7 +576,7 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
             uint32_t db_low  = (sq_head << 4) | first_trans_type;
             uint32_t db_high = (qp->qp_num << 8) | snd_cnt;
             doorbell = ((uint64_t)db_high << 32) | db_low;
-            DPRINTF(Ibv, "doorbell addr: %ld, doorbell: %ld\n", doorbell_addr, doorbell);
+            DPRINTF(Ibv, "doorbell addr: 0x%lx, doorbell: 0x%lx\n", doorbell_addr, doorbell);
             DbellElem dbElem = {
                 .addr = doorbell_addr,
                 .size = 8,
@@ -590,7 +590,7 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
             snd_cnt = 0;
             qp->snd_wqe_offset = 0; /* SQ MR is allocated in page, so
                                      * the start address (offset) is 0 */
-            DPRINTF(Ibv, " 1db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
+            DPRINTF(Ibv, " db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
         }
 
          uint8_t *u8_tmp = (uint8_t *)tx_desc;
@@ -604,7 +604,7 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
         uint32_t db_low  = (sq_head << 4) | first_trans_type;
         uint32_t db_high = (qp->qp_num << 8) | snd_cnt;
         doorbell = ((uint64_t)db_high << 32) | db_low;
-        DPRINTF(Ibv, "doorbell addr: %ld, doorbell: %ld\n", doorbell_addr, doorbell);
+        DPRINTF(Ibv, "doorbell addr: 0x%lx, doorbell: 0x%lx\n", doorbell_addr, doorbell);
         DbellElem dbElem = {
             .addr = doorbell_addr,
             .size = 8,
@@ -612,7 +612,7 @@ int Ibv::ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct 
         };
         dbellFifo.push(dbElem);
         //nicCtrl->dmaWrite(doorbell_addr, 8, nullptr, (uint8_t *)&doorbell);
-        // HGRNIC_PRINT(" db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
+        DPRINTF(Ibv, " db_low is 0x%x, db_high is 0x%x\n", db_low, db_high);
     }
 
     if (!waitMailReplyEvent.scheduled()) {

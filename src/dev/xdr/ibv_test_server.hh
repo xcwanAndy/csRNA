@@ -19,7 +19,7 @@ struct rem_info {
     int start_off; /* qp start offset in rdma_resc */
     int sum; /* number of qp connected for one client */
 
-    /** 
+    /**
      * == 1 if recved sync req
      */
     uint8_t sync_flag;
@@ -115,8 +115,8 @@ class IbvTestServer : public SimObject {
         std::unordered_set<struct ibv_cq *> cplWaitingList;
         std::unordered_map<struct ibv_cq *, std::queue<struct cpl_desc *>> cplOutput;
 
-        EventFunctionWrapper readCplEvent;
-        void readCpl();
+        EventFunctionWrapper rdmaWriteEvent;
+        void rdma_write();
 
         char id_name[10];
         uint8_t  cpu_id;
@@ -124,7 +124,7 @@ class IbvTestServer : public SimObject {
 
         void rdma_connect(struct rdma_resc *resc, uint16_t svr_lid);
         void rdma_listen_pre();
-        struct rdma_cr *rdma_listen_post(struct cpl_desc *desc);
+        void rdma_listen_post(struct cpl_desc *desc);
         struct ibv_wqe *init_rcv_wqe (struct ibv_mr* mr, int num);
         struct ibv_wqe *init_rcv_wqe (struct ibv_context *ctx, int num);
         struct ibv_wqe *init_snd_wqe (struct ibv_context *ctx, struct rdma_cr *cr_info, int num, uint16_t dlid);

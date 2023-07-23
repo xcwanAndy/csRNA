@@ -39,6 +39,7 @@
 #include "debug/Drain.hh"
 #include "dev/net/etherpkt.hh"
 #include "debug/HanGu.hh"
+#include "dev/rdma/hangu_rnic_defs.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
 #include "params/HanGuRnic.hh"
@@ -3623,11 +3624,13 @@ HanGuRnic::DmaEngine::dmaChnlProc () {
         
         dmaReq = dmaWReqFifo.front();
         dmaWReqFifo.pop();
+        HANGU_PRINT(DmaEngine, "Writing %d data into 0x%x\n", dmaReq->size, dmaReq->addr);
         rnic->dmaWrite(dmaReq->addr, dmaReq->size, nullptr, dmaReq->data);
     } else if (dmaRReqFifo.size()) {
 
         dmaReq = dmaRReqFifo.front();
         dmaRReqFifo.pop();
+        HANGU_PRINT(DmaEngine, "Reading %d data from 0x%x\n", dmaReq->size, dmaReq->addr);
         rnic->dmaRead(dmaReq->addr, dmaReq->size, nullptr, dmaReq->data);
     }
     
@@ -3664,6 +3667,8 @@ HanGuRnic::ethRxDelay(EthPacketPtr pkt) {
 
     HANGU_PRINT(HanGuRnic, " ethRxDelay!\n");
     
+    HANGU_PRINT(HanGuRnic, " macAddr: 0x%x, pkt->data: 0x%x!\n", macAddr, pkt->data);
+
     /* dest addr is not local, then abandon it */
     if (isMacEqual(macAddr, pkt->data) == false) {
         return true;
