@@ -1,11 +1,11 @@
-#ifndef __IBV_TEST_SERVER_H__
-#define __IBV_TEST_SERVER_H__
+#ifndef __IBV_TEST_BASE_H__
+#define __IBV_TEST_BASE_H__
 
 #include <queue>
 #include <stdio.h>
 #include <unordered_map>
 #include "debug/XDR.hh"
-#include "params/IbvTestServer.hh"
+//#include "params/IbvTestBase.hh"
 #include "libibv.hh"
 #include "sim/eventq.hh"
 
@@ -91,31 +91,27 @@ struct rdma_cr {
 };
 
 
-class IbvTestServer : public SimObject {
+class IbvTestBase : public SimObject {
     public:
-        typedef IbvTestServerParams Params;
-        const Params *params() const {
-                return dynamic_cast<const Params *>(_params);
-            }
-        IbvTestServer(const Params *params);
-        ~IbvTestServer(){};
+        IbvTestBase(const Params *params);
+        ~IbvTestBase(){};
 
         Ibv *ibv;
         struct rdma_resc *res;
         uint16_t clt_lid, svr_lid;
 
+        struct cpl_desc **desc;
         struct cpl_desc **malloc_desc();
 
-        EventFunctionWrapper mainEvent;
-        int main ();
+        //EventFunctionWrapper mainEvent;
+        //int main ();
 
         EventFunctionWrapper pollCplEvent;
         void poll_cpl();
         std::unordered_set<struct ibv_cq *> cplWaitingList;
-        std::unordered_map<struct ibv_cq *, std::queue<struct cpl_desc *>> cplOutput;
 
-        EventFunctionWrapper rdmaWriteEvent;
-        void rdma_write();
+        //EventFunctionWrapper readCplEvent;
+        //void readCpl();
 
         char id_name[10];
         uint8_t  cpu_id;
@@ -127,12 +123,12 @@ class IbvTestServer : public SimObject {
         struct ibv_wqe *init_rcv_wqe (struct ibv_mr* mr, int num);
         struct ibv_wqe *init_rcv_wqe (struct ibv_context *ctx, int num);
         struct ibv_wqe *init_snd_wqe (struct ibv_context *ctx, struct rdma_cr *cr_info, int num, uint16_t dlid);
-        struct ibv_wqe *init_rdma_write_wqe (struct ibv_mr* lmr);
+        struct ibv_wqe *init_rdma_write_wqe (struct rdma_resc *res, struct ibv_mr* lmr, uint64_t raddr, uint32_t rkey);
         struct ibv_wqe *init_rdma_read_wqe (struct ibv_mr* req_mr, struct ibv_mr* rsp_mr, uint32_t qkey);
-        void config_rc_qp();
+        void config_rc_qp(struct rdma_resc *res);
         void config_ud_qp (struct ibv_qp* qp, struct ibv_cq *cq, struct ibv_context *ctx, uint32_t qkey);
         int exchange_rc_info(struct rdma_resc *resc, uint16_t svr_lid);
         struct rdma_resc *resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq);
 };
 
-#endif /* __IBV_TEST_SERVER_H__*/
+#endif /* __IBV_TEST_BASE_H__ */

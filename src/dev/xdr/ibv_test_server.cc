@@ -7,11 +7,10 @@ IbvTestServer::IbvTestServer(const Params *p)
     : SimObject(p),
     ibv(p->ibv),
     mainEvent([this]{ main(); }, name()),
-    pollCplEvent([this] { pollCpl(); }, name()),
+    pollCplEvent([this] { poll_cpl(); }, name()),
     rdmaWriteEvent([this] { rdma_write(); }, name())
 {
     DPRINTF(IbvTestServer, "Initializing IbvTestServer\n");
-    desc = malloc_desc();
     if (!mainEvent.scheduled()) {
         DPRINTF(IbvTestServer, "mainEvent is being scheduled ...\n");
         schedule(mainEvent, curTick() + 1000);
@@ -80,7 +79,10 @@ struct ibv_wqe *IbvTestServer::init_snd_wqe (struct ibv_context *ctx, struct rdm
     return wqe;
 }
 
-struct ibv_wqe *IbvTestServer::init_rdma_write_wqe (struct rdma_resc *res, struct ibv_mr* lmr, uint64_t raddr, uint32_t rkey) {
+struct ibv_wqe *IbvTestServer::init_rdma_write_wqe (struct ibv_mr* lmr) {
+
+    uint64_t raddr = res->rinfo->raddr;
+    uint32_t rkey = res->rinfo->rkey;
 
     struct ibv_wqe *wqe = (struct ibv_wqe *)malloc(sizeof(struct ibv_wqe) * res->num_wqe);
 
@@ -146,15 +148,21 @@ struct cpl_desc ** IbvTestServer::malloc_desc() {
     return desc;
 }
 
-void IbvTestServer::pollCpl() {
-    //DPRINTF(IbvTestServer, "[DEBUG] pollCpl: Waiting for cpl ...\n");
+void IbvTestServer::poll_cpl() {
+    //DPRINTF(IbvTestServer, "[DEBUG] poll_cpl: Waiting for cpl ...\n");
+    void (IbvTestServer::*deal_cpl)(struct cpl_desc *) = NULL;
     for (struct ibv_cq *cq : cplWaitingList) {
         //DPRINTF(IbvTestClient, "Polling from cq: %d\n", cq->cq_num);
-        int res = ibv->ibv_poll_cpl(cq, desc, MAX_CPL_NUM);
-        if (res) {
+        if (cq->cq_num == res->ctx->cm_cq->cq_num) {
+            deal_cpl = &IbvTestServer::rdma_listen_post;
+        } else if (cq->cq_num == res->cq[0]->cq_num) {
+            deal_cpl = &IbvTestServer::rdma_write_post;
+        }
+        int cpl_num = ibv->ibv_poll_cpl(cq, res->desc, MAX_CPL_NUM);
+        if (cpl_num) {
             DPRINTF(IbvTestServer, "poll_cpl finish: cq_num: %d, return %d, cpl_cnt: %d\n", cq->cq_num, res, cq->cpl_cnt);
-            for (int i=0; i<res; i++) {
-                rdma_listen_post(desc[i]);
+            for (int i=0; i<cpl_num; i++) {
+                (this->*deal_cpl)(res->desc[i]);
             }
         }
     }
@@ -213,7 +221,7 @@ void IbvTestServer::rdma_listen_post(struct cpl_desc *desc) {
 
     DPRINTF(IbvTestServer, "rdma_listen_post: cpl_desc trans_type %d cq_num %d\n", desc->trans_type, desc->cq_num);
 
-    if (desc->trans_type == IBV_TYPE_RECV && desc->cq_num == ctx->cm_cq->cq_num) {
+    if (desc->trans_type == IBV_TYPE_RECV) {
         DPRINTF(IbvTestServer, "rdma_listen_post: ibv_poll_cpl recv %d bytes CR.\n", desc->byte_cnt);
         /* Fetch rdma_cr from cm_mr */
         cr_info = (struct rdma_cr *)malloc(sizeof(struct rdma_cr));
@@ -252,11 +260,61 @@ void IbvTestServer::rdma_listen_post(struct cpl_desc *desc) {
     res->rinfo->rkey  = cr_info->rkey;
     DPRINTF(IbvTestServer, "Received rinfo: raddr 0x%lx, rkey 0x%x\n", res->rinfo->raddr, res->rinfo->rkey);
 
+    /* reconfig qp */
+    config_rc_qp();
+
+    /* remove cm_cq from waiting list */
+    cplWaitingList.erase(ctx->cm_cq);
+
     /* schedule write operation */
+    rdma_write();
 }
 
-void IbvTestServer::rdma_write() {
+void IbvTestServer::rdma_write_pre() {
+    struct ibv_wqe *wrdma_wqe = init_rdma_write_wqe(res->mr[0]);
+    for (int i = 0; i < res->num_qp; ++i) {
+        ibv->ibv_post_send(res->ctx, wrdma_wqe, res->qp[i], 1);
+        DPRINTF(IbvTestServer, "IBV post write wqe to qp %d!\n", res->qp[i]->qp_num);
 
+        cplWaitingList.insert(res->cq[i]);
+        DPRINTF(IbvTestServer, "Put %d cq into waiting list\n", ctx->cq[i]->cq_num);
+    }
+
+    if (!pollCplEvent.scheduled()) {
+        schedule(pollCplEvent, curTick());
+    }
+}
+
+void IbvTestServer::rdma_write_post(struct cpl_desc *desc) {
+    struct ibv_context *ctx = res->ctx;
+    struct rdma_cr *cr_info;
+
+    DPRINTF(IbvTestServer, "rdma_write_post: cpl_desc trans_type %d cq_num %d\n", desc->trans_type, desc->cq_num);
+
+    if (desc->trans_type == IBV_TYPE_RDMA_WRITE) {
+        DPRINTF(IbvTestServer, "rdma_write_post: ibv_poll_cpl recv %d bytes CR.\n", desc->byte_cnt);
+        /* Fetch rdma_cr from cm_mr */
+        cr_info = (struct rdma_cr *)malloc(sizeof(struct rdma_cr));
+        struct rdma_cr *cr_tmp = ((struct rdma_cr *)(ctx->cm_mr->addr + ctx->cm_rcv_acked_off));
+
+        memcpy(cr_info, cr_tmp, sizeof(struct rdma_cr));
+
+        /* DEBUG: print cr_info */
+        uint8_t *u8_tmp = (uint8_t *)(cr_info);
+        DPRINTF(IbvTestServer, "rdma_listen_post: flag: 0x%x, qp_type 0x%lx, raddr 0x%lx, rkey 0x%x, dst_qpn 0x%x\n",
+                cr_info->flag, (uint64_t)cr_info->qp_type, (uint64_t)cr_info->raddr,
+                cr_info->rkey, cr_info->dst_qpn);
+        for (int j = 0; j < sizeof(struct rdma_cr); ++j) {
+            DPRINTF(IbvTestServer, "rdma_listen_post:\t data[%d] 0x%x\n", j, u8_tmp[j]);
+        }
+
+        /* Clear cpl data */
+        --ctx->cm_rcv_num;
+        ctx->cm_rcv_acked_off += sizeof(struct rdma_cr);
+        if (ctx->cm_rcv_acked_off + sizeof(struct rdma_cr) > RCV_WR_MAX * sizeof(struct rdma_cr)) {
+            ctx->cm_rcv_acked_off = 0;
+        }
+    }
 }
 /******************************* RDMA Ops *********************************/
 
@@ -275,6 +333,8 @@ struct rdma_resc *IbvTestServer::resc_init(uint16_t llid, int num_qp, int num_mr
 
     res->num_qp = num_qp;
     //res->num_wqe = num_wqe;
+
+    res->desc = malloc_desc();
 
     struct ibv_context *ctx = (struct ibv_context *)malloc(sizeof(struct ibv_context));
     res->ctx = ctx;
@@ -303,7 +363,7 @@ struct rdma_resc *IbvTestServer::resc_init(uint16_t llid, int num_qp, int num_mr
 }
 
 
-void IbvTestServer::config_rc_qp(struct rdma_resc *res) {
+void IbvTestServer::config_rc_qp() {
 
     for (int i = 0; i < res->num_qp; ++i) {
         res->qp[i]->ctx = res->ctx;
@@ -370,16 +430,7 @@ int IbvTestServer::main () {
 
     rdma_listen_pre();
 
-    config_rc_qp(res);
-
     return 0;
-
-    /********************* write ********************/
-    struct ibv_wqe *wrdma_wqe = init_rdma_write_wqe(res, res->mr[0], res->rinfo->raddr, res->rinfo->rkey);
-    for (int i = 0; i < res->num_qp; ++i) {
-        ibv->ibv_post_send(res->ctx, wrdma_wqe, res->qp[i], 1);
-    }
-    DPRINTF(IbvTestServer, "[test requester] ibv_post_send!\n");
 
     int sum = 0;
     struct cpl_desc **desc;
