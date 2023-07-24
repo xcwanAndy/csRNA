@@ -1,12 +1,11 @@
-#include "ibv_test_base.hh"
 #include "base/statistics.hh"
 #include "base/trace.hh"
 #include "dev/xdr/libibv.hh"
+#include "ibv_test_base.hh"
 
 IbvTestBase::IbvTestBase(const Params *p)
     : SimObject(p),
     ibv(p->ibv),
-    //mainEvent([this]{ main(); }, name()),
     pollCplEvent([this] { poll_cpl(); }, name())
 {
     DPRINTF(IbvTestBase, "Initializing IbvTestBase\n");
@@ -74,7 +73,11 @@ struct ibv_wqe *IbvTestBase::init_snd_wqe (struct ibv_context *ctx, struct rdma_
     return wqe;
 }
 
-struct ibv_wqe *IbvTestBase::init_rdma_write_wqe (struct rdma_resc *res, struct ibv_mr* lmr, uint64_t raddr, uint32_t rkey) {
+
+struct ibv_wqe *IbvTestBase::init_rdma_write_wqe (struct ibv_mr* lmr) {
+
+    uint64_t raddr = res->rinfo->raddr;
+    uint32_t rkey = res->rinfo->rkey;
 
     struct ibv_wqe *wqe = (struct ibv_wqe *)malloc(sizeof(struct ibv_wqe) * res->num_wqe);
 
@@ -140,20 +143,40 @@ struct cpl_desc ** IbvTestBase::malloc_desc() {
     return desc;
 }
 
+
 void IbvTestBase::poll_cpl() {
+    if (cplWaitingList.empty()) {
+        return;
+    }
     //DPRINTF(IbvTestBase, "[DEBUG] poll_cpl: Waiting for cpl ...\n");
-    for (struct ibv_cq *cq : cplWaitingList) {
-        //DPRINTF(IbvTestBase, "Polling from cq: %d\n", cq->cq_num);
-        int res = ibv->ibv_poll_cpl(cq, desc, MAX_CPL_NUM);
-        if (res) {
+    void (IbvTestBase::*deal_cpl)(struct cpl_desc *) = NULL;
+    struct ibv_cq *cq;
+
+    for (auto it = cplWaitingList.begin(); it != cplWaitingList.end(); it++) {
+        cq = *it;
+
+        assert(!cplWaitingList.empty());
+
+        /* Determine the processing function */
+        if (cq->cq_num == res->ctx->cm_cq->cq_num) {
+            deal_cpl = &IbvTestBase::rdma_listen_post;
+        } else if (cq->cq_num == res->cq[0]->cq_num) {
+            deal_cpl = &IbvTestBase::rdma_write_post;
+        } else {
+            return;
+        }
+
+        int cpl_num = ibv->ibv_poll_cpl(cq, res->desc, MAX_CPL_NUM);
+        if (cpl_num) {
             DPRINTF(IbvTestBase, "poll_cpl finish: cq_num: %d, return %d, cpl_cnt: %d\n", cq->cq_num, res, cq->cpl_cnt);
-            for (int i=0; i<res; i++) {
-                rdma_listen_post(desc[i]);
+            for (int i=0; i<cpl_num; i++) {
+                (this->*deal_cpl)(res->desc[i]);
             }
+            break;
         }
     }
     /* Schedule itself */
-    if (!cplWaitingList.empty() && !pollCplEvent.scheduled()) {
+    if (!pollCplEvent.scheduled()) {
         schedule(pollCplEvent, curTick() + 1000);
     }
 }
@@ -207,7 +230,7 @@ void IbvTestBase::rdma_listen_post(struct cpl_desc *desc) {
 
     DPRINTF(IbvTestBase, "rdma_listen_post: cpl_desc trans_type %d cq_num %d\n", desc->trans_type, desc->cq_num);
 
-    if (desc->trans_type == IBV_TYPE_RECV && desc->cq_num == ctx->cm_cq->cq_num) {
+    if (desc->trans_type == IBV_TYPE_RECV) {
         DPRINTF(IbvTestBase, "rdma_listen_post: ibv_poll_cpl recv %d bytes CR.\n", desc->byte_cnt);
         /* Fetch rdma_cr from cm_mr */
         cr_info = (struct rdma_cr *)malloc(sizeof(struct rdma_cr));
@@ -246,7 +269,64 @@ void IbvTestBase::rdma_listen_post(struct cpl_desc *desc) {
     res->rinfo->rkey  = cr_info->rkey;
     DPRINTF(IbvTestBase, "Received rinfo: raddr 0x%lx, rkey 0x%x\n", res->rinfo->raddr, res->rinfo->rkey);
 
+    /* reconfig qp */
+    config_rc_qp();
+
+    /* remove cm_cq from waiting list */
+    DPRINTF(IbvTestBase, "Removing cq %d from waiting list\n", ctx->cm_cq->cq_num);
+    cplWaitingList.erase(ctx->cm_cq);
+
     /* schedule write operation */
+    //rdma_write();
+}
+
+
+void IbvTestBase::rdma_write_pre() {
+    struct ibv_wqe *wrdma_wqe = init_rdma_write_wqe(res->mr[0]);
+
+    for (int i = 0; i < res->num_qp; ++i) {
+        ibv->ibv_post_send(res->ctx, wrdma_wqe, res->qp[i], 1);
+        DPRINTF(IbvTestBase, "IBV post write wqe to qp %d!\n", res->qp[i]->qp_num);
+
+        cplWaitingList.insert(res->cq[i]);
+        DPRINTF(IbvTestBase, "Put %d cq into waiting list\n", res->cq[i]->cq_num);
+    }
+
+    if (!pollCplEvent.scheduled()) {
+        schedule(pollCplEvent, curTick());
+    }
+}
+
+void IbvTestBase::rdma_write_post(struct cpl_desc *desc) {
+    struct ibv_context *ctx = res->ctx;
+    struct rdma_cr *cr_info;
+
+    DPRINTF(IbvTestBase, "rdma_write_post: cpl_desc trans_type %d cq_num %d\n", desc->trans_type, desc->cq_num);
+
+    if (desc->trans_type == IBV_TYPE_RDMA_WRITE) {
+        DPRINTF(IbvTestBase, "rdma_write_post: ibv_poll_cpl recv %d bytes CR.\n", desc->byte_cnt);
+        /* Fetch rdma_cr from cm_mr */
+        cr_info = (struct rdma_cr *)malloc(sizeof(struct rdma_cr));
+        struct rdma_cr *cr_tmp = ((struct rdma_cr *)(ctx->cm_mr->addr + ctx->cm_rcv_acked_off));
+
+        memcpy(cr_info, cr_tmp, sizeof(struct rdma_cr));
+
+        /* DEBUG: print cr_info */
+        uint8_t *u8_tmp = (uint8_t *)(cr_info);
+        DPRINTF(IbvTestBase, "rdma_write_post: flag: 0x%x, qp_type 0x%lx, raddr 0x%lx, rkey 0x%x, dst_qpn 0x%x\n",
+                cr_info->flag, (uint64_t)cr_info->qp_type, (uint64_t)cr_info->raddr,
+                cr_info->rkey, cr_info->dst_qpn);
+        for (int j = 0; j < sizeof(struct rdma_cr); ++j) {
+            DPRINTF(IbvTestBase, "rdma_write_post:\t data[%d] 0x%x\n", j, u8_tmp[j]);
+        }
+
+        /* Clear cpl data */
+        --ctx->cm_rcv_num;
+        ctx->cm_rcv_acked_off += sizeof(struct rdma_cr);
+        if (ctx->cm_rcv_acked_off + sizeof(struct rdma_cr) > RCV_WR_MAX * sizeof(struct rdma_cr)) {
+            ctx->cm_rcv_acked_off = 0;
+        }
+    }
 }
 /******************************* RDMA Ops *********************************/
 
@@ -265,6 +345,8 @@ struct rdma_resc *IbvTestBase::resc_init(uint16_t llid, int num_qp, int num_mr, 
 
     res->num_qp = num_qp;
     //res->num_wqe = num_wqe;
+
+    res->desc = malloc_desc();
 
     struct ibv_context *ctx = (struct ibv_context *)malloc(sizeof(struct ibv_context));
     res->ctx = ctx;
@@ -292,8 +374,7 @@ struct rdma_resc *IbvTestBase::resc_init(uint16_t llid, int num_qp, int num_mr, 
     return res;
 }
 
-
-void IbvTestBase::config_rc_qp(struct rdma_resc *res) {
+void IbvTestBase::config_rc_qp() {
 
     for (int i = 0; i < res->num_qp; ++i) {
         res->qp[i]->ctx = res->ctx;
@@ -337,67 +418,7 @@ void IbvTestBase::config_ud_qp (struct ibv_qp* qp, struct ibv_cq *cq, struct ibv
 /******************************* Config *********************************/
 
 
-/*****************************************************
- *********************** Entrance ********************
- *****************************************************/
-int IbvTestBase::main () {
-    int rtn;
-    num_client = 1;
-    clt_lid=0x11; /* client's MAC */
-    svr_lid=0x22; /* server's MAC */
-    sprintf(id_name, "%d", 999);
-
-    int num_qp = 1, num_mr = 1, num_cq = 1;
-    res = resc_init(clt_lid, num_qp, num_mr, num_cq);
-
-    DPRINTF(IbvTestBase, "main function executing ...\n");
-
-    /********************* receive ********************/
-    struct ibv_wqe *recv_wqe = init_rcv_wqe(res->ctx, RCV_WR_MAX);
-    ibv->ibv_post_recv(res->ctx, recv_wqe, res->ctx->cm_qp, RCV_WR_MAX);
-
-    rdma_connect(res, svr_lid);
-
-    config_rc_qp(res);
-
-    return 0;
-
-    /********************* write ********************/
-    struct ibv_wqe *wrdma_wqe = init_rdma_write_wqe(res, res->mr[0], res->rinfo->raddr, res->rinfo->rkey);
-    for (int i = 0; i < res->num_qp; ++i) {
-        ibv->ibv_post_send(res->ctx, wrdma_wqe, res->qp[i], 1);
-    }
-    DPRINTF(IbvTestBase, "[test requester] ibv_post_send!\n");
-
-    int sum = 0;
-    struct cpl_desc **desc;
-    for (int i = 0; i < 100; ++i) {
-        // usleep(1000);
-
-        desc = (struct cpl_desc **)malloc(sizeof(struct cpl_desc *) * MAX_CPL_NUM);
-        for (int i = 0; i < MAX_CPL_NUM; ++i) {
-            desc[i] = (struct cpl_desc *)malloc(sizeof(struct cpl_desc));
-        }
-        rtn = ibv->ibv_poll_cpl(res->cq[0], desc, MAX_CPL_NUM);
-
-        DPRINTF(IbvTestBase, "[test requester] %d ibv_poll_cpl (CM) finish ! return is %d\n", i, rtn);
-
-        if (rtn) {
-            for (int j  = 0; j < rtn; ++j) {
-                DPRINTF(IbvTestBase, "[test requester] ibv_poll_cpl (CM) finish! recv %d bytes, trans type is %d.\n", (*desc)[j].byte_cnt, (*desc)[j].trans_type);
-            }
-            sum += rtn;
-            if (sum >= (1 * 2)) {
-                break;
-            }
-        }
-    }
-
-    // for (int i = 0; i < res->num_wqe; ++i) {
-    //     DPRINTF(IbvTestBase, "[test requester] CM Recv addr is 0x%lx, send data is : %s\n",
-    //         (uint64_t)ctx.cm_mr->addr + 100 + i * 17, (char *)(ctx.cm_mr->addr + 100 + i * 17));
-    // }
-
-    return 0;
+/* This function is compulsory */
+IbvTestBase * IbvTestBaseParams::create() {
+    return new IbvTestBase(this);
 }
-

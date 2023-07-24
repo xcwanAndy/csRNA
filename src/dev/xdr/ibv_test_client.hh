@@ -1,9 +1,7 @@
 #ifndef __IBV_TEST_CLIENT_H__
 #define __IBV_TEST_CLIENT_H__
 
-#include "debug/XDR.hh"
 #include "params/IbvTestClient.hh"
-#include "sim/eventq.hh"
 #include "ibv_test_base.hh"
 
 class IbvTestClient : public IbvTestBase {

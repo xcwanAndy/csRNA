@@ -809,11 +809,13 @@ MemBlock MemAllocator::allocMem(size_t size) {
 }
 
 void MemAllocator::recycleMem() {
-    for (auto it = memMap.begin(); it != memMap.end(); it++) {
+    for (auto it = memMap.begin(); it != memMap.end();) {
         if (! it->isValid) {
             DPRINTF(MemAlloc, "Recycling: V (0x%lx, 0x%lx) <> P (0x%lx, 0x%lx)\n",
                     it->vaddr.start(), it->vaddr.end() , it->paddr.start(), it->paddr.end());
-            memMap.erase(it);
+            it = memMap.erase(it);
+        } else {
+            it++;
         }
     }
     return;

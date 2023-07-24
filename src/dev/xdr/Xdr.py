@@ -89,13 +89,15 @@ class Ibv(SimObject):
     cxx_header = "dev/xdr/libibv.hh"
     nicCtrl = Param.NicCtrl("Rnic Controller")
 
+class IbvTestBase(SimObject):
+    type = 'IbvTestBase'
+    cxx_header = "dev/xdr/ibv_test_base.hh"
+    ibv = Param.Ibv("IB Verbs")
 
-class IbvTestClient(SimObject):
+class IbvTestClient(IbvTestBase):
     type = 'IbvTestClient'
     cxx_header = "dev/xdr/ibv_test_client.hh"
-    ibv = Param.Ibv("IB Verbs")
 
-class IbvTestServer(SimObject):
+class IbvTestServer(IbvTestBase):
     type = 'IbvTestServer'
     cxx_header = "dev/xdr/ibv_test_server.hh"
-    ibv = Param.Ibv("IB Verbs")

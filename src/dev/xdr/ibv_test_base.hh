@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <unordered_map>
 #include "debug/XDR.hh"
-//#include "params/IbvTestBase.hh"
+#include "params/IbvTestBase.hh"
 #include "libibv.hh"
 #include "sim/eventq.hh"
 
@@ -93,6 +93,10 @@ struct rdma_cr {
 
 class IbvTestBase : public SimObject {
     public:
+        typedef IbvTestBaseParams Params;
+        const Params *params() const {
+                return dynamic_cast<const Params *>(_params);
+            }
         IbvTestBase(const Params *params);
         ~IbvTestBase(){};
 
@@ -120,12 +124,13 @@ class IbvTestBase : public SimObject {
         void rdma_connect(struct rdma_resc *resc, uint16_t svr_lid);
         void rdma_listen_pre();
         void rdma_listen_post(struct cpl_desc *desc);
-        struct ibv_wqe *init_rcv_wqe (struct ibv_mr* mr, int num);
+        void rdma_write_pre();
+        void rdma_write_post(struct cpl_desc *desc);
         struct ibv_wqe *init_rcv_wqe (struct ibv_context *ctx, int num);
         struct ibv_wqe *init_snd_wqe (struct ibv_context *ctx, struct rdma_cr *cr_info, int num, uint16_t dlid);
-        struct ibv_wqe *init_rdma_write_wqe (struct rdma_resc *res, struct ibv_mr* lmr, uint64_t raddr, uint32_t rkey);
+        struct ibv_wqe *init_rdma_write_wqe (struct ibv_mr* lmr);
         struct ibv_wqe *init_rdma_read_wqe (struct ibv_mr* req_mr, struct ibv_mr* rsp_mr, uint32_t qkey);
-        void config_rc_qp(struct rdma_resc *res);
+        void config_rc_qp();
         void config_ud_qp (struct ibv_qp* qp, struct ibv_cq *cq, struct ibv_context *ctx, uint32_t qkey);
         int exchange_rc_info(struct rdma_resc *resc, uint16_t svr_lid);
         struct rdma_resc *resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq);
