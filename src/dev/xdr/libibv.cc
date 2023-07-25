@@ -21,7 +21,7 @@
  *  Copyright (C) 2023 Xinyu Yang, HKUST.
  */
 
-#include "dev/xdr/libibv.hh"
+#include "libibv.hh"
 
 #include <algorithm>
 #include <cstdint>
@@ -334,7 +334,7 @@ struct ibv_cq* Ibv::ibv_create_cq(struct ibv_context *context, struct ibv_cq_ini
     /* Init (Allocate and write) MTT && MPT */
     struct ibv_mr_init_attr *mr_attr =
             (struct ibv_mr_init_attr *)malloc(sizeof(struct ibv_mr_init_attr));
-    mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_LOCAL);
+    mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_LOCAL | MR_FLAG_WR);
     mr_attr->length = (1 << cq_attr->size_log); // (PAGE_SIZE << 2); // !TODO: Now the size is a fixed number of 1 page
     cq->mr = ibv_reg_mr(context, mr_attr);
     free(mr_attr);

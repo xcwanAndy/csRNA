@@ -13,7 +13,7 @@
 struct rem_info {
     uint64_t raddr;
     uint32_t rkey;
-     uint32_t qpn;
+    uint32_t qpn;
     uint16_t dlid;
 
     int start_off; /* qp start offset in rdma_resc */
@@ -114,12 +114,12 @@ class IbvTestBase : public SimObject {
         void poll_cpl();
         std::unordered_set<struct ibv_cq *> cplWaitingList;
 
-        //EventFunctionWrapper readCplEvent;
-        //void readCpl();
+        EventFunctionWrapper rdmaWriteEvent;
 
         char id_name[10];
         uint8_t  cpu_id;
         uint32_t num_client;
+        bool has_rinfo;
 
         void rdma_connect(struct rdma_resc *resc, uint16_t svr_lid);
         void rdma_listen_pre();
@@ -133,7 +133,7 @@ class IbvTestBase : public SimObject {
         void config_rc_qp();
         void config_ud_qp (struct ibv_qp* qp, struct ibv_cq *cq, struct ibv_context *ctx, uint32_t qkey);
         int exchange_rc_info(struct rdma_resc *resc, uint16_t svr_lid);
-        struct rdma_resc *resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq);
+        struct rdma_resc *resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe);
 };
 
 #endif /* __IBV_TEST_BASE_H__ */

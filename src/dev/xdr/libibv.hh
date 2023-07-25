@@ -96,9 +96,10 @@ enum ibv_trans_func {
     IBV_TYPE_RDMA_READ  = (uint8_t)0x04,
 };
 
-enum ibv_wqe_flags {
-    WR_FLAG_SIGNALED  = (1 << 31),
-};
+/* This one has been defined in hangu_rnic_def.h */
+//enum ibv_wqe_flags {
+    //WR_FLAG_SIGNALED  = (1 << 31),
+//};
 
 
 struct Doorbell {

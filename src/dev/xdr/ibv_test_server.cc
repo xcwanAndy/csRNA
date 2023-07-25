@@ -18,14 +18,14 @@ IbvTestServer::IbvTestServer(const Params *p)
  *********************** Entrance ********************
  *****************************************************/
 int IbvTestServer::main () {
-    int rtn;
     num_client = 1;
     clt_lid=0x11; /* client's MAC */
     svr_lid=0x22; /* server's MAC */
     sprintf(id_name, "%d", 999);
 
-    int num_qp = 1, num_mr = 1, num_cq = 1;
-    res = resc_init(clt_lid, num_qp, num_mr, num_cq);
+    int num_qp = 1, num_mr = 1, num_cq = 1, num_wqe = 1;
+    /* The first parameter is local lid */
+    res = resc_init(svr_lid, num_qp, num_mr, num_cq, num_wqe);
 
     DPRINTF(IbvTestServer, "server main function executing ...\n");
 
@@ -36,37 +36,6 @@ int IbvTestServer::main () {
     //rdma_connect(res, svr_lid);
 
     rdma_listen_pre();
-
-    return 0;
-
-    int sum = 0;
-    struct cpl_desc **desc;
-    for (int i = 0; i < 100; ++i) {
-        // usleep(1000);
-
-        desc = (struct cpl_desc **)malloc(sizeof(struct cpl_desc *) * MAX_CPL_NUM);
-        for (int i = 0; i < MAX_CPL_NUM; ++i) {
-            desc[i] = (struct cpl_desc *)malloc(sizeof(struct cpl_desc));
-        }
-        rtn = ibv->ibv_poll_cpl(res->cq[0], desc, MAX_CPL_NUM);
-
-        DPRINTF(IbvTestServer, "[test requester] %d ibv_poll_cpl (CM) finish ! return is %d\n", i, rtn);
-
-        if (rtn) {
-            for (int j  = 0; j < rtn; ++j) {
-                DPRINTF(IbvTestServer, "[test requester] ibv_poll_cpl (CM) finish! recv %d bytes, trans type is %d.\n", (*desc)[j].byte_cnt, (*desc)[j].trans_type);
-            }
-            sum += rtn;
-            if (sum >= (1 * 2)) {
-                break;
-            }
-        }
-    }
-
-    // for (int i = 0; i < res->num_wqe; ++i) {
-    //     DPRINTF(IbvTestServer, "[test requester] CM Recv addr is 0x%lx, send data is : %s\n",
-    //         (uint64_t)ctx.cm_mr->addr + 100 + i * 17, (char *)(ctx.cm_mr->addr + 100 + i * 17));
-    // }
 
     return 0;
 }
