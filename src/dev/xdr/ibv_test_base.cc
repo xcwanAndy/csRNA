@@ -1,13 +1,14 @@
 #include "base/statistics.hh"
 #include "base/trace.hh"
 #include "dev/rdma/hangu_rnic_defs.hh"
+#include "dev/xdr/libibv.hh"
 #include "ibv_test_base.hh"
 
 IbvTestBase::IbvTestBase(const Params *p)
     : SimObject(p),
     ibv(p->ibv),
     pollCplEvent([this] { poll_cpl(); }, name()),
-    rdmaWriteEvent([this] { rdma_write_pre(); }, name())
+    rdmaOpEvent([this] { rdma_op_pre(); }, name())
 {
     has_rinfo = false;
     DPRINTF(IbvTestBase, "Initializing IbvTestBase\n");
@@ -76,7 +77,7 @@ struct ibv_wqe *IbvTestBase::init_snd_wqe (struct ibv_context *ctx, struct rdma_
 }
 
 
-struct ibv_wqe *IbvTestBase::init_rdma_write_wqe (struct ibv_mr* lmr) {
+struct ibv_wqe *IbvTestBase::init_rdma_write_wqe (struct ibv_mr* local_mr) {
 
     uint64_t raddr = res->rinfo->raddr;
     uint32_t rkey = res->rinfo->rkey;
@@ -87,15 +88,16 @@ struct ibv_wqe *IbvTestBase::init_rdma_write_wqe (struct ibv_mr* lmr) {
 
     // Write data to mr
     uint32_t offset = 0;
-    char *string = (char *)(lmr->addr + offset);
+    char *string = (char *)(local_mr->addr + offset);
     memcpy(string, RDMA_WRITE_DATA, sizeof(RDMA_WRITE_DATA));
     DPRINTF(IbvTestBase, "init_rdma_write_wqe: string is %s, string vaddr is 0x%lx, start vaddr is 0x%lx\n",
-                string, (uint64_t)string, (uint64_t)(lmr->addr + offset));
+                string, (uint64_t)string, (uint64_t)(local_mr->addr + offset));
+
 
     for (int i = 0; i < res->num_wqe; ++i) {
 
         wqe[i].length = sizeof(RDMA_WRITE_DATA);
-        wqe[i].mr = lmr;
+        wqe[i].mr = local_mr;
         wqe[i].offset = offset;
 
         wqe[i].flag = WR_FLAG_SIGNALED; /* This flag is used to get cpl */
@@ -108,29 +110,27 @@ struct ibv_wqe *IbvTestBase::init_rdma_write_wqe (struct ibv_mr* lmr) {
     return wqe;
 }
 
-struct ibv_wqe *IbvTestBase::init_rdma_read_wqe (struct ibv_mr* req_mr, struct ibv_mr* rsp_mr, uint32_t qkey) {
+struct ibv_wqe *IbvTestBase::init_rdma_read_wqe (struct ibv_mr* local_mr) {
 
     struct ibv_wqe *wqe = (struct ibv_wqe *)malloc(sizeof(struct ibv_wqe));
 
 #define TRANS_RRDMA_DATA "hello RDMA Read!"
 
-    // Write data to mr
+    // Write read data to local_mr
     uint32_t offset = 0;
-    char *string = (char *)(rsp_mr->addr + offset);
-    memcpy(string, TRANS_RRDMA_DATA, sizeof(TRANS_RRDMA_DATA));
-
-    DPRINTF(IbvTestBase, "[test requester] init_snd_wqe: string is %s, string vaddr is 0x%lx, start vaddr is 0x%lx\n",
-            string, (uint64_t)string, (uint64_t)(rsp_mr->addr + offset));
 
     wqe->length = sizeof(TRANS_RRDMA_DATA);
-    DPRINTF(IbvTestBase, "[test requester] init_snd_wqe: len is %d, addr: 0x%lx, key: %x\n", wqe->length, (uint64_t)rsp_mr->addr, rsp_mr->lkey);
-    wqe->mr = req_mr;
+    DPRINTF(IbvTestBase, "init_rdma_read_wqe: len is %d, addr: 0x%lx, key: %x\n",
+            wqe->length, (uint64_t)res->rinfo->raddr, res->rinfo->rkey);
+    wqe->mr = local_mr;
     wqe->offset = offset;
+
+    wqe->flag = WR_FLAG_SIGNALED; /* This flag is used to get cpl */
 
     // Add RDMA Read element
     wqe->trans_type = IBV_TYPE_RDMA_READ;
-    wqe->rdma.raddr = (uint64_t)rsp_mr->addr;
-    wqe->rdma.rkey  = rsp_mr->lkey;
+    wqe->rdma.raddr = res->rinfo->raddr;
+    wqe->rdma.rkey  = res->rinfo->rkey;
 
     // DPRINTF(IbvTestBase, "[test requester] init_snd_wqe: rKey: 0x%x, rAddr: 0x%lx\n", wqe->rdma.rkey, wqe->rdma.raddr);
     return wqe;
@@ -165,7 +165,7 @@ void IbvTestBase::poll_cpl() {
         if (cq->cq_num == res->ctx->cm_cq->cq_num) {
             deal_cpl = &IbvTestBase::rdma_listen_post;
         } else {
-            deal_cpl = &IbvTestBase::rdma_write_post;
+            deal_cpl = &IbvTestBase::rdma_op_post;
         }
 
         int cpl_num = ibv->ibv_poll_cpl(cq, res->desc, MAX_CPL_NUM);
@@ -281,19 +281,27 @@ void IbvTestBase::rdma_listen_post(struct cpl_desc *desc) {
     DPRINTF(IbvTestBase, "Removing cq %d from waiting list\n", ctx->cm_cq->cq_num);
     cplWaitingList.erase(ctx->cm_cq);
 
-    /* schedule write operation */
-    if (!rdmaWriteEvent.scheduled()) {
-        schedule(rdmaWriteEvent, curTick());
+    /* schedule rdma operation */
+    if (!rdmaOpEvent.scheduled()) {
+        schedule(rdmaOpEvent, curTick());
     }
 }
 
 
-void IbvTestBase::rdma_write_pre() {
-    struct ibv_wqe *wrdma_wqe = init_rdma_write_wqe(res->mr[0]);
+void IbvTestBase::rdma_op_pre() {
+
+    struct ibv_wqe *rdma_wqe;
+    if (res->ibv_type == IBV_TYPE_RDMA_WRITE) {
+        rdma_wqe = init_rdma_write_wqe(res->mr[0]);
+    } else if (res->ibv_type == IBV_TYPE_RDMA_READ) {
+        rdma_wqe = init_rdma_read_wqe(res->mr[0]);
+    } else {
+        panic("Ibv type error: %d", res->ibv_type);
+    }
 
     for (int i = 0; i < res->num_qp; ++i) {
-        ibv->ibv_post_send(res->ctx, wrdma_wqe, res->qp[i], 1);
-        DPRINTF(IbvTestBase, "IBV post write wqe to qp %d!\n", res->qp[i]->qp_num);
+        ibv->ibv_post_send(res->ctx, rdma_wqe, res->qp[i], 1);
+        DPRINTF(IbvTestBase, "IBV post wqe to qp %d!\n", res->qp[i]->qp_num);
 
         cplWaitingList.insert(res->cq[i]);
         DPRINTF(IbvTestBase, "Put %d cq into waiting list\n", res->cq[i]->cq_num);
@@ -304,13 +312,16 @@ void IbvTestBase::rdma_write_pre() {
     }
 }
 
-void IbvTestBase::rdma_write_post(struct cpl_desc *desc) {
+void IbvTestBase::rdma_op_post(struct cpl_desc *desc) {
 
     if (desc->trans_type == IBV_TYPE_RDMA_WRITE) {
-        DPRINTF(IbvTestBase, "rdma_write_post: ibv_poll_cpl write completion:\n");
+        DPRINTF(IbvTestBase, "rdma_op_post: ibv_poll_cpl write completion:\n");
         DPRINTF(IbvTestBase, "\t%d bytes transfered\n", desc->byte_cnt);
         DPRINTF(IbvTestBase, "\ttrans_type: %d, srv_type: %d\n", desc->trans_type, desc->srv_type);
         DPRINTF(IbvTestBase, "\tqp_num: %d, cq_num: %d.\n", desc->qp_num, desc->cq_num);
+    } else if (desc->trans_type == IBV_TYPE_RDMA_READ) {
+        char *string = (char *)res->mr[0]->addr;
+        DPRINTF(IbvTestBase, "The string from RDMA Read is '%s'\n", string);
     }
 }
 /******************************* RDMA Ops *********************************/
@@ -399,6 +410,19 @@ void IbvTestBase::config_ud_qp (struct ibv_qp* qp, struct ibv_cq *cq, struct ibv
     // qp->dsubnet.dlid = 0x0000;
 
     qp->qkey = qkey;
+}
+
+void IbvTestBase::fill_read_mr(struct ibv_mr* mr) {
+
+#define TRANS_RRDMA_DATA "hello RDMA Read!"
+
+    // Write data to mr
+    uint32_t offset = 0;
+    char *string = (char *)(mr->addr + offset);
+    memcpy(string, TRANS_RRDMA_DATA, sizeof(TRANS_RRDMA_DATA));
+
+    DPRINTF(IbvTestBase, "[test requester] init_snd_wqe: string is %s, string vaddr is 0x%lx, start vaddr is 0x%lx\n",
+            string, (uint64_t)string, (uint64_t)(mr->addr + offset));
 }
 /******************************* Config *********************************/
 

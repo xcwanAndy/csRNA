@@ -34,6 +34,8 @@ struct rem_info {
 struct rdma_resc {
     struct ibv_context *ctx;
 
+    uint8_t ibv_type;
+
     int num_mr;
     int num_cq;
     int num_qp; /* number of qps per client */
@@ -114,7 +116,7 @@ class IbvTestBase : public SimObject {
         void poll_cpl();
         std::unordered_set<struct ibv_cq *> cplWaitingList;
 
-        EventFunctionWrapper rdmaWriteEvent;
+        EventFunctionWrapper rdmaOpEvent;
 
         char id_name[10];
         uint8_t  cpu_id;
@@ -124,15 +126,17 @@ class IbvTestBase : public SimObject {
         void rdma_connect(struct rdma_resc *resc, uint16_t svr_lid);
         void rdma_listen_pre();
         void rdma_listen_post(struct cpl_desc *desc);
-        void rdma_write_pre();
-        void rdma_write_post(struct cpl_desc *desc);
+        void rdma_op_pre();
+        void rdma_op_post(struct cpl_desc *desc);
         struct ibv_wqe *init_rcv_wqe (struct ibv_context *ctx, int num);
         struct ibv_wqe *init_snd_wqe (struct ibv_context *ctx, struct rdma_cr *cr_info, int num, uint16_t dlid);
         struct ibv_wqe *init_rdma_write_wqe (struct ibv_mr* lmr);
+        struct ibv_wqe *init_rdma_read_wqe (struct ibv_mr* mr);
         struct ibv_wqe *init_rdma_read_wqe (struct ibv_mr* req_mr, struct ibv_mr* rsp_mr, uint32_t qkey);
         void config_rc_qp();
         void config_ud_qp (struct ibv_qp* qp, struct ibv_cq *cq, struct ibv_context *ctx, uint32_t qkey);
         int exchange_rc_info(struct rdma_resc *resc, uint16_t svr_lid);
+        void fill_read_mr(struct ibv_mr* mr);
         struct rdma_resc *resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe);
 };
 

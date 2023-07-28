@@ -32,6 +32,8 @@ int IbvTestClient::main () {
     int num_qp = 1, num_mr = 1, num_cq = 1, num_wqe = 1;
     res = resc_init(clt_lid, num_qp, num_mr, num_cq, num_wqe);
 
+    fill_read_mr(res->mr[0]);
+
     DPRINTF(IbvTestClient, "main function executing ...\n");
 
     /********************* receive ********************/
