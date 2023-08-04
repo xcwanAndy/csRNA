@@ -22,6 +22,7 @@
  */
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -31,12 +32,14 @@
 
 #include "base/addr_range.hh"
 #include "base/inet.hh"
+#include "base/logging.hh"
 #include "base/trace.hh"
 #include "base/random.hh"
 #include "debug/Drain.hh"
 #include "dev/net/etherpkt.hh"
 #include "debug/XDR.hh"
 #include "dev/rdma/kfd_ioctl.h"
+#include "dev/xdr/kfd_ioctl.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
 #include "sim/core.hh"
@@ -51,12 +54,13 @@ using namespace std;
 NicCtrl::NicCtrl(const Params *p)
     : PciDevice(p),
     rnic(p->rnic),
-    /* The first 8 bits are used for mail reply.
+    /*
+     * The first 8 bits are used for mail reply.
      * The remaining 1024-8 are used for command from software.
      */
     mailboxAlloc(p->base_addr + 1024),
-    memAlloc(p->base_addr + sizeof(uint8_t) + (MAILBOX_PAGE_NUM << 12) * 64),
-    hostmemAlloc(0x1000000000000000),
+    memAlloc(p->base_addr + 1024 + (MAILBOX_PAGE_NUM << 12) * 64),
+    cmdRange(sizeof(uint8_t), 1024),
     mailboxRange(1024, 1024 + (MAILBOX_PAGE_NUM << 12) * 64),
     //nicCtrlEvent([this]{ nicCtrl(); }, name())
     sendMailEvent([this]{ sendMail(); }, name()),
@@ -68,9 +72,6 @@ NicCtrl::NicCtrl(const Params *p)
 
         BARSize[0]  = (1 << 30);
         BARAddrs[0] = p->base_addr;
-
-        /* Base addr for command from software */
-        cmdBase = p->base_addr + 8;
 
         /* Get doorbell and HCR addrs of rnic */
         AddrRangeList addr_list = rnic->getAddrRanges();
@@ -335,8 +336,11 @@ Tick NicCtrl::write(PacketPtr pkt) {
         mailReply = pkt->getLE<uint8_t>();
         DPRINTF(PioEngine, " PioEngine.write: mailReply 0x%x\n", mailReply);
         pendMailRecord &= ~(1 << mailReply);
+    } else if (cmdRange.contains(daddr)) {
+        DPRINTF(PioEngine, "The paddr is 0x%x\n", paddr);
+        processCmd(pkt);
     } else if (mailboxRange.contains(daddr)) {
-        DPRINTF(PioEngine, " Write to mailbox: not implemented!");
+        DPRINTF(PioEngine, " Write to mailbox: not implemented!\n");
     } else {
         Addr vaddr = memAlloc.getVirAddr(paddr);
         memcpy((uint8_t *)vaddr, pkt->getPtr<uint8_t>(), pkt->getSize());
@@ -345,6 +349,41 @@ Tick NicCtrl::write(PacketPtr pkt) {
 
     pkt->makeAtomicResponse();
     return pioDelay;
+}
+
+void NicCtrl::processCmd(PacketPtr pkt) {
+    struct accelkfd_ioctl_type type;
+    uint32_t type_size = sizeof(struct accelkfd_ioctl_type);
+    memcpy(&type, pkt->getPtr<uint8_t>(), type_size);
+    switch(type.type) {
+        case ACCELKFD_SEND_MR_ADDR:
+            {
+                struct accelkfd_ioctl_mr_addr mr_args;
+                assert(type_size + sizeof(mr_args) == pkt->getSize());
+                memcpy(&mr_args, pkt->getPtr<uint8_t>() + type_size, pkt->getSize());
+                accel->mrArgsQueue.push(mr_args);
+            }
+            break;
+        case ACCELKFD_START_CLT:
+            {
+                if (!accel->cltProcEvent.scheduled()) {
+                    schedule(accel->cltProcEvent, curTick() + clockPeriod());
+                }
+            }
+            break;
+        case ACCELKFD_START_SVR:
+            {
+                if (!accel->svrProcEvent.scheduled()) {
+                    schedule(accel->svrProcEvent, curTick() + clockPeriod());
+                }
+            }
+            break;
+        default: {
+                panic("Error type: %d", type.type);
+                break;
+            }
+    }
+
 }
 /////////////////////////// NicCtrl::PIO relevant {end}////////////////////////
 

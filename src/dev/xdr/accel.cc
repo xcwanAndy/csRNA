@@ -1,4 +1,6 @@
+#include "base/logging.hh"
 #include "dev/rdma/hangu_rnic_defs.hh"
+#include "dev/xdr/kfd_ioctl.hh"
 #include "dev/xdr/libibv.hh"
 #include "accel.hh"
 
@@ -8,13 +10,21 @@ Accel::Accel(const Params *p)
     pollCplEvent([this] { poll_cpl(); }, name()),
     rdmaOpEvent([this] { rdma_op_pre(); }, name()),
     cltProcEvent([this] { cltProc(); }, name()),
-    svrProcEvent([this] { svrProc(); }, name())
+    svrProcEvent([this] { svrProc(); }, name()),
+    loopEvent([this] { loop(); }, name())
 {
     has_rinfo = false;
     DPRINTF(Accel, "Initializing Accel\n");
 
     ibv->nicCtrl->accel = this;
 } // Accel::Accel
+
+
+void Accel::loop() {
+    if (!loopEvent.scheduled()) {
+        schedule(loopEvent, curTick() + 2000);
+    }
+}
 
 
 /******************************* Init wqe *********************************/
@@ -330,7 +340,7 @@ void Accel::rdma_op_post(struct cpl_desc *desc) {
 
 
 /******************************* Config *********************************/
-struct rdma_resc *Accel::resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe) {
+struct rdma_resc *Accel::resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe, bool is_hostmem) {
     struct rdma_resc *res = (struct rdma_resc *)malloc(sizeof(struct rdma_resc));
     memset(res, 0, sizeof(struct rdma_resc));
     res->num_mr  = num_mr;
@@ -354,7 +364,17 @@ struct rdma_resc *Accel::resc_init(uint16_t llid, int num_qp, int num_mr, int nu
     struct ibv_mr_init_attr mr_attr;
     mr_attr.length = 1 << 12;
     mr_attr.flag = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_WR | MR_FLAG_LOCAL | MR_FLAG_REMOTE);
-    res->mr[0] = ibv->ibv_reg_mr(res->ctx, &mr_attr, true);
+    if (is_hostmem) {
+        if (mrArgsQueue.empty()) {
+            panic("The mr args queue is empty.");
+        }
+        struct accelkfd_ioctl_mr_addr mr_args = mrArgsQueue.front();
+        mrArgsQueue.pop();
+        mr_attr.vaddr = mr_args.vaddr;
+        mr_attr.paddr = mr_args.paddr;
+        DPRINTF(Accel, "Host Memory: mr_attr.vaddr 0x%x, paddr 0x%x\n", mr_attr.vaddr, mr_attr.paddr);
+    }
+    res->mr[0] = ibv->ibv_reg_mr(res->ctx, &mr_attr, is_hostmem);
     DPRINTF(Accel, "[test requester] ibv_reg_mr End! lkey %d, vaddr 0x%lx\n", res->mr[0]->lkey, (uint64_t)res->mr[0]->addr);
 
     struct ibv_cq_init_attr cq_attr;
@@ -436,9 +456,9 @@ void Accel::cltProc(){
     svr_lid=0x22; /* server's MAC */
 
     int num_qp = 1, num_mr = 1, num_cq = 1, num_wqe = 1;
-    res = resc_init(clt_lid, num_qp, num_mr, num_cq, num_wqe);
+    res = resc_init(clt_lid, num_qp, num_mr, num_cq, num_wqe, true);
 
-    fill_read_mr(res->mr[0]);
+    //fill_read_mr(res->mr[0]);
 
     DPRINTF(IbvTestClient, "client main function executing ...\n");
 
@@ -452,6 +472,10 @@ void Accel::cltProc(){
     res->rinfo->qpn = 1; /* Set mannually for server res->qp[0] */
 
     config_rc_qp();
+
+    if (!loopEvent.scheduled()) {
+        schedule(loopEvent, curTick() + 2000);
+    }
 }
 
 
@@ -462,7 +486,7 @@ void Accel::svrProc() {
 
     int num_qp = 1, num_mr = 1, num_cq = 1, num_wqe = 1;
     /* The first parameter is local lid */
-    res = resc_init(svr_lid, num_qp, num_mr, num_cq, num_wqe);
+    res = resc_init(svr_lid, num_qp, num_mr, num_cq, num_wqe, false);
 
     res->ibv_type = IBV_TYPE_RDMA_WRITE;
     //res->ibv_type = IBV_TYPE_RDMA_READ;

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <unordered_map>
 #include "debug/XDR.hh"
+#include "dev/xdr/kfd_ioctl.hh"
 #include "params/Accel.hh"
 #include "libibv.hh"
 #include "sim/eventq.hh"
@@ -123,10 +124,15 @@ class Accel : public SimObject {
         void cltProc();
         void svrProc();
 
+        EventFunctionWrapper loopEvent;
+        void loop();
+
         char id_name[10];
         uint8_t  cpu_id;
         uint32_t num_client;
         bool has_rinfo;
+
+        std::queue<struct accelkfd_ioctl_mr_addr> mrArgsQueue;
 
         void rdma_connect(struct rdma_resc *resc, uint16_t svr_lid);
         void rdma_listen_pre();
@@ -142,7 +148,7 @@ class Accel : public SimObject {
         void config_ud_qp (struct ibv_qp* qp, struct ibv_cq *cq, struct ibv_context *ctx, uint32_t qkey);
         int exchange_rc_info(struct rdma_resc *resc, uint16_t svr_lid);
         void fill_read_mr(struct ibv_mr* mr);
-        struct rdma_resc *resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe);
+        struct rdma_resc *resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe, bool is_hostmem=false);
 };
 
 #endif /* __IBV_ACCEL_H__ */

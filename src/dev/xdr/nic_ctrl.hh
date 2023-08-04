@@ -46,12 +46,13 @@ using namespace HanGuRnicDef;
 class NicCtrl : public PciDevice {
     private:
         HanGuRnic *rnic;
-        Addr cmdBase;
         Addr hcrAddr;
         Addr doorBell;
         MemAllocator mailboxAlloc;
         MemAllocator memAlloc;
-        MemAllocator hostmemAlloc;
+
+        AddrRange cmdRange;
+        AddrRange mailboxRange;
 
     public:
         typedef NicCtrlParams Params;
@@ -67,9 +68,7 @@ class NicCtrl : public PciDevice {
 
         // Attirbute access
         Addr getDoorbell() { return doorBell; }
-        Addr getCmdBase() { return cmdBase; }
         MemAllocator *getMemAlloc(){ return &memAlloc; }
-        MemAllocator *getHostMemAlloc(){ return &hostmemAlloc; }
 
         // Control Interface
         //int nicCtrl();
@@ -95,7 +94,6 @@ class NicCtrl : public PciDevice {
             uint8_t opcode;
         }MailElem;
 
-        AddrRange mailboxRange;
         //void initMailbox();
         void scheduleMailbox(MailElem mailElem);
         std::queue<MailElem> mailFifo;
@@ -106,6 +104,9 @@ class NicCtrl : public PciDevice {
 
         EventFunctionWrapper wait2SendEvent;
         void wait2Send();
+
+        /* Processing command from software */
+        void processCmd(PacketPtr pkt);
 
         // Resc
         struct RescMeta {

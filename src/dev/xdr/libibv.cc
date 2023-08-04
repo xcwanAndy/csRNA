@@ -53,7 +53,6 @@ Ibv::Ibv(const Params *p)
 {
         DPRINTF(Ibv, " Initializing Ibv\n");
         memAlloc = nicCtrl->getMemAlloc();
-        hostmemAlloc = nicCtrl->getHostMemAlloc();
 }
 
 Ibv::~Ibv(){}
@@ -187,11 +186,12 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
     mr_attr->length = len;
     /* This address will be translated into phys addr */
     if (is_hostmem) {
-        mr->addr = (uint8_t *)hostmemAlloc->allocMem(mr_attr->length).vaddr.start();
+        mr->addr = (uint8_t *)mr_attr->vaddr;
     } else {
         mr->addr = (uint8_t *)memAlloc->allocMem(mr_attr->length).vaddr.start();
+        memset(mr->addr, 0, mr_attr->length);
     }
-    memset(mr->addr, 0, mr_attr->length);
+    DPRINTF(Ibv, "mr->addr: 0x%x\n", (uint64_t)mr->addr);
     mr->ctx = context;
     mr->flag   = mr_attr->flag;
     mr->length = mr_attr->length;
@@ -206,13 +206,14 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
         mtt_args->vaddr[i] = (uint8_t *)mr->mtt[i].vaddr;
         /* Translate virtual addr into physical addr */
         if (is_hostmem) {
-            mtt_args->paddr[i] = hostmemAlloc->getPhyAddr((Addr)mtt_args->vaddr[0]);
+            mtt_args->paddr[i] = mr_attr->paddr + (i << PAGE_SIZE_LOG);
         } else {
             mtt_args->paddr[i] = memAlloc->getPhyAddr((Addr)mtt_args->vaddr[0]);
         }
         write_cmd(HGKFD_IOC_ALLOC_MTT, (void *)mtt_args);
         mr->mtt[i].mtt_index = mtt_args->mtt_index;
         mr->mtt[i].paddr = mtt_args->paddr[i];
+        DPRINTF(Ibv, "mr->mtt[%d].paddr: 0x%x\n", i, mr->mtt[i].paddr);
         write_cmd(HGKFD_IOC_WRITE_MTT, (void *)mtt_args);
         free(mtt_args);
     }

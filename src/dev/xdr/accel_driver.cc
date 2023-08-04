@@ -22,6 +22,7 @@
 
 #include "dev/xdr/accel_driver.hh"
 #include "dev/xdr/kfd_ioctl.hh"
+#include <cstring>
 
 
 
@@ -60,7 +61,7 @@ AccelDriver::configDevice() {
  */
 Addr AccelDriver::mmap(ThreadContext *tc, Addr start, uint64_t length, int prot,
                 int tgt_flags, int tgt_fd, int offset) {
-    HANGU_PRINT(AccelDriver, " rnic hangu_rnic doorbell mmap (start: %p, length: 0x%x,"
+    HANGU_PRINT(AccelDriver, " Accel mmap (start: %p, length: 0x%x,"
             "offset: 0x%x) cxt_id %d\n", start, length, offset, tc->contextId());
 
     auto process = tc->getProcessPtr();
@@ -83,7 +84,7 @@ Addr AccelDriver::mmap(ThreadContext *tc, Addr start, uint64_t length, int prot,
     AddrRange baseAddrBar0 = addrList.front();
     HANGU_PRINT(AccelDriver, " baseAddrBar0.start 0x%x, baseAddrBar0.size() 0x%x\n", baseAddrBar0.start(), baseAddrBar0.size());
     process->pTable->map(start, baseAddrBar0.start(), 128, false);
-    HANGU_PRINT(AccelDriver, " rnic hangu_rnic doorbell mapped to 0x%x\n", start);
+    HANGU_PRINT(AccelDriver, " BAR0 mapped to 0x%x\n", start);
     hcrAddr = start + 8; /* The first 8 bytes are used for sync */
     return hcrAddr;
 }
@@ -91,26 +92,60 @@ Addr AccelDriver::mmap(ThreadContext *tc, Addr start, uint64_t length, int prot,
 
 int AccelDriver::ioctl(ThreadContext *tc, unsigned req, Addr ioc_buf) {
     auto &virt_proxy = tc->getVirtProxy();
+    size_t size_type = sizeof(struct accelkfd_ioctl_type);
+    struct accelkfd_ioctl_type ioctl_type;
 
     Addr pAddr;
     auto process = tc->getProcessPtr();
     process->pTable->translate(ioc_buf, pAddr);
 
     switch (req) {
-      case ACCELKFD_SEND_MR_ADDR: // Input
-        {
-            HANGU_PRINT(AccelDriver, " ioctl : ACCELKFD_SEND_MR_ADDR.\n");
+        case ACCELKFD_SEND_MR_ADDR:
+            {
+                HANGU_PRINT(AccelDriver, " ioctl : ACCELKFD_SEND_MR_ADDR.\n");
 
-            TypedBufferArg<kfd_ioctl_mr_addr> args(ioc_buf);
-            args.copyIn(virt_proxy);
+                TypedBufferArg<accelkfd_ioctl_mr_addr> args(ioc_buf);
+                args.copyIn(virt_proxy);
+                HANGU_PRINT(AccelDriver, "mr_addr: 0x%x, mr_len: %d\n", args->vaddr, args->size);
 
-        }
-        break;
-      default:
-        {
-            fatal("%s: bad ioctl %d\n", req);
-        }
-        break;
+                process->pTable->translate((Addr)args->vaddr, (Addr &)args->paddr);
+                HANGU_PRINT(AccelDriver, "The translated paddr: 0x%x\n", args->paddr);
+
+                ioctl_type.type = ACCELKFD_SEND_MR_ADDR;
+                ioctl_type.len = sizeof(struct accelkfd_ioctl_mr_addr);
+                uint8_t *combined_args = (uint8_t *)malloc(size_type + ioctl_type.len);
+                memcpy(combined_args, &ioctl_type, size_type);
+                memcpy(combined_args + size_type, args, ioctl_type.len);
+
+                virt_proxy.writeBlob(hcrAddr, combined_args, ioctl_type.len + size_type);
+            }
+            break;
+        case ACCELKFD_START_CLT:
+            {
+                HANGU_PRINT(AccelDriver, " ioctl : ACCELKFD_START_CLT.\n");
+                ioctl_type.type = ACCELKFD_START_CLT;
+                ioctl_type.len = 0;
+                uint8_t *combined_args = (uint8_t *)malloc(size_type + ioctl_type.len);
+                memcpy(combined_args, &ioctl_type, size_type);
+
+                virt_proxy.writeBlob(hcrAddr, combined_args, ioctl_type.len + size_type);
+            }
+            break;
+        case ACCELKFD_START_SVR:
+            {
+                ioctl_type.type = ACCELKFD_START_SVR;
+                ioctl_type.len = 0;
+                uint8_t *combined_args = (uint8_t *)malloc(size_type + ioctl_type.len);
+                memcpy(combined_args, &ioctl_type, size_type);
+
+                virt_proxy.writeBlob(hcrAddr, combined_args, ioctl_type.len + size_type);
+            }
+            break;
+        default:
+            {
+                fatal("%s: bad ioctl %d\n", req);
+            }
+            break;
     }
     return 0;
 }

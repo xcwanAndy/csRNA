@@ -37,6 +37,7 @@
 #include "sim/syscall_emul_buf.hh"
 #include "params/NicCtrl.hh"
 #include "params/Ibv.hh"
+#include <cstdint>
 
 extern char id_name[10];
 extern uint8_t  cpu_id;
@@ -295,6 +296,8 @@ struct ibv_qp_create_attr {
 struct ibv_mr_init_attr {
     enum ibv_mr_flag flag  ;
     uint64_t         length; /* 0-4096(in bytes) now */
+    uint64_t         vaddr;
+    uint64_t         paddr;
 };
 /* -------Interact with kernel upper layer verbs lib{end}------- */
 
@@ -387,7 +390,6 @@ class Ibv : public SimObject{
         NicCtrl *nicCtrl;
 
         MemAllocator *memAlloc;
-        MemAllocator *hostmemAlloc;
 
         typedef struct {
             Addr addr;

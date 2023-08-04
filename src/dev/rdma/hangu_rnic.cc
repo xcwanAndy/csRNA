@@ -3670,8 +3670,8 @@ HanGuRnic::ethRxDelay(EthPacketPtr pkt) {
 
     /* dest addr is not local, then abandon it */
     if (isMacEqual(macAddr, pkt->data) == false) {
-        HANGU_PRINT(HanGuRnic, "Adandon macAddr: 0x%x!\n", (uint64_t *)macAddr);
-        HANGU_PRINT(HanGuRnic, "Adandon pkt->data: 0x%x!\n", (uint64_t *)pkt->data);
+        HANGU_PRINT(HanGuRnic, "Abandon macAddr: 0x%x!\n", (uint64_t *)macAddr);
+        HANGU_PRINT(HanGuRnic, "Abandon pkt->data: 0x%x!\n", (uint64_t *)pkt->data);
         return true;
     }
 
