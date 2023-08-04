@@ -35,7 +35,7 @@ from m5.util import addToPath, fatal, warn
 
 from m5.objects.PciHost import *
 from m5.objects.Rnic import HanGuRnic, HanGuDriver
-from m5.objects.Xdr import NicCtrl, Ibv, IbvTestClient, IbvTestServer
+from m5.objects.Xdr import NicCtrl, Ibv, IbvTestClient, IbvTestServer, AccelDriver, Accel
 
 
 addToPath('../../')
@@ -50,7 +50,8 @@ from common.FileSystemConfig import config_filesystem
 from common.Caches import *
 from common.cpu2000 import *
 
-APP = "tests/test-progs/nic-ctrl/bin/loop"
+CLIENT = "tests/test-progs/nic-ctrl/bin/client"
+SERVER = "tests/test-progs/nic-ctrl/bin/server"
 
 
 # def config_rnic(system, options, node_num):
@@ -127,13 +128,15 @@ def make_nic_system(options, CPUClass, test_mem_mode, is_client=False):
 
     if (is_client):
         mac_addr = 0x11
-        system.ibv_test = IbvTestClient()
+        cmd = CLIENT
     else:
         mac_addr = 0x22
-        system.ibv_test = IbvTestServer()
+        cmd = SERVER
+
+    system.accel = Accel()
 
     system.ibv = Ibv()
-    system.ibv_test.ibv = system.ibv
+    system.accel.ibv = system.ibv
 
     # RNIC Platform
     system.nic_platform = RnicPlatform()
@@ -146,8 +149,8 @@ def make_nic_system(options, CPUClass, test_mem_mode, is_client=False):
     # Attach RNIC to iobus
     system.nic_platform.attachIO(system.iobus)
 
-    # rdma_driver = HanGuDriver(filename="hangu_rnic"+str(i))
-    # rdma_driver.device = system.nic_platform.rdma_nic
+    accel_driver = AccelDriver(filename="accel")
+    accel_driver.accel = system.accel
 
     system.intrctrl = IntrControl()
 
@@ -155,13 +158,15 @@ def make_nic_system(options, CPUClass, test_mem_mode, is_client=False):
     system.nic_platform.nic_ctrl.rnic = system.nic_platform.rdma_nic
     system.nic_platform.nic_ctrl.pci_speed = options.pci_linkspeed
 
-    system.ibv.nicCtrl = system.nic_platform.nic_ctrl
+    system.ibv.nic_ctrl = system.nic_platform.nic_ctrl
+    # system.nic_platform.nic_ctrl.accel = system.accel
 
     # Set process
     process = Process(pid = 100)
-    process.executable = APP
+    process.executable = cmd
     process.cwd = os.getcwd()
-    process.cmd = [APP]
+    process.cmd = [cmd]
+    process.drivers = [accel_driver]
     system.cpu[0].workload = process
     system.cpu[0].createThreads()
 

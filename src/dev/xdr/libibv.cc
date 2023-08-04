@@ -47,12 +47,13 @@
 
 Ibv::Ibv(const Params *p)
     : SimObject(p),
-    nicCtrl(p->nicCtrl),
+    nicCtrl(p->nic_ctrl),
     sendDooebellEvent([this] {sendDoorbell();}, name()),
     waitMailReplyEvent([this] {waitMailReply();}, name())
 {
         DPRINTF(Ibv, " Initializing Ibv\n");
         memAlloc = nicCtrl->getMemAlloc();
+        hostmemAlloc = nicCtrl->getHostMemAlloc();
 }
 
 Ibv::~Ibv(){}
@@ -167,7 +168,7 @@ int Ibv::ibv_open_device(struct ibv_context *context, uint16_t lid) {
     return 0;
 }
 
-struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr) {
+struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr, bool is_hostmem) {
     DPRINTF(Ibv, " ibv_reg_mr!\n");
     //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
     struct ibv_mr *mr =  (struct ibv_mr *)malloc(sizeof(struct ibv_mr));
@@ -185,7 +186,11 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
     len = ((uint64_t)(len / PAGE_SIZE) + 1) * PAGE_SIZE;
     mr_attr->length = len;
     /* This address will be translated into phys addr */
-    mr->addr = (uint8_t *)memAlloc->allocMem(mr_attr->length).vaddr.start();
+    if (is_hostmem) {
+        mr->addr = (uint8_t *)hostmemAlloc->allocMem(mr_attr->length).vaddr.start();
+    } else {
+        mr->addr = (uint8_t *)memAlloc->allocMem(mr_attr->length).vaddr.start();
+    }
     memset(mr->addr, 0, mr_attr->length);
     mr->ctx = context;
     mr->flag   = mr_attr->flag;
@@ -198,12 +203,16 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
         struct kfd_ioctl_init_mtt_args *mtt_args =
                 (struct kfd_ioctl_init_mtt_args *)malloc(sizeof(struct kfd_ioctl_init_mtt_args));
         mtt_args->batch_size = 1;
-        mtt_args->vaddr[0] = (uint8_t *)mr->mtt[i].vaddr;
+        mtt_args->vaddr[i] = (uint8_t *)mr->mtt[i].vaddr;
         /* Translate virtual addr into physical addr */
-        mtt_args->paddr[0] = memAlloc->getPhyAddr((Addr)mtt_args->vaddr[0]);
+        if (is_hostmem) {
+            mtt_args->paddr[i] = hostmemAlloc->getPhyAddr((Addr)mtt_args->vaddr[0]);
+        } else {
+            mtt_args->paddr[i] = memAlloc->getPhyAddr((Addr)mtt_args->vaddr[0]);
+        }
         write_cmd(HGKFD_IOC_ALLOC_MTT, (void *)mtt_args);
         mr->mtt[i].mtt_index = mtt_args->mtt_index;
-        mr->mtt[i].paddr = mtt_args->paddr[0];
+        mr->mtt[i].paddr = mtt_args->paddr[i];
         write_cmd(HGKFD_IOC_WRITE_MTT, (void *)mtt_args);
         free(mtt_args);
     }

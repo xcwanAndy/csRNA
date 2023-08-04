@@ -87,17 +87,23 @@ class NicCtrl(PciDevice):
 class Ibv(SimObject):
     type = 'Ibv'
     cxx_header = "dev/xdr/libibv.hh"
-    nicCtrl = Param.NicCtrl("Rnic Controller")
+    nic_ctrl = Param.NicCtrl("Rnic Controller")
 
-class IbvTestBase(SimObject):
-    type = 'IbvTestBase'
-    cxx_header = "dev/xdr/ibv_test_base.hh"
+class Accel(SimObject):
+    type = 'Accel'
+    cxx_header = "dev/xdr/accel.hh"
     ibv = Param.Ibv("IB Verbs")
 
-class IbvTestClient(IbvTestBase):
+class IbvTestClient(Accel):
     type = 'IbvTestClient'
     cxx_header = "dev/xdr/ibv_test_client.hh"
 
-class IbvTestServer(IbvTestBase):
+class IbvTestServer(Accel):
     type = 'IbvTestServer'
     cxx_header = "dev/xdr/ibv_test_server.hh"
+
+class AccelDriver(EmulatedDriver):
+    type = 'AccelDriver'
+    # abstract = True
+    cxx_header = 'dev/xdr/accel_driver.hh'
+    accel = Param.Accel('Accelerater controlled by this driver')

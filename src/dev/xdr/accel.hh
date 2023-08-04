@@ -1,11 +1,11 @@
-#ifndef __IBV_TEST_BASE_H__
-#define __IBV_TEST_BASE_H__
+#ifndef __IBV_ACCEL_H__
+#define __IBV_ACCEL_H__
 
 #include <queue>
 #include <stdio.h>
 #include <unordered_map>
 #include "debug/XDR.hh"
-#include "params/IbvTestBase.hh"
+#include "params/Accel.hh"
 #include "libibv.hh"
 #include "sim/eventq.hh"
 
@@ -93,14 +93,14 @@ struct rdma_cr {
 };
 
 
-class IbvTestBase : public SimObject {
+class Accel : public SimObject {
     public:
-        typedef IbvTestBaseParams Params;
+        typedef AccelParams Params;
         const Params *params() const {
                 return dynamic_cast<const Params *>(_params);
             }
-        IbvTestBase(const Params *params);
-        ~IbvTestBase(){};
+        Accel(const Params *params);
+        ~Accel(){};
 
         Ibv *ibv;
         struct rdma_resc *res;
@@ -117,6 +117,11 @@ class IbvTestBase : public SimObject {
         std::unordered_set<struct ibv_cq *> cplWaitingList;
 
         EventFunctionWrapper rdmaOpEvent;
+
+        EventFunctionWrapper cltProcEvent;
+        EventFunctionWrapper svrProcEvent;
+        void cltProc();
+        void svrProc();
 
         char id_name[10];
         uint8_t  cpu_id;
@@ -140,4 +145,4 @@ class IbvTestBase : public SimObject {
         struct rdma_resc *resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe);
 };
 
-#endif /* __IBV_TEST_BASE_H__ */
+#endif /* __IBV_ACCEL_H__ */

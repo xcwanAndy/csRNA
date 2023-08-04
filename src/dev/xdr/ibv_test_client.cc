@@ -3,7 +3,7 @@
 #include "base/trace.hh"
 
 IbvTestClient::IbvTestClient(const Params *p)
-    : IbvTestBase(p),
+    : Accel(p),
     mainEvent([this]{ main(); }, name()),
     loopEvent([this] { loop(); }, name())
 {

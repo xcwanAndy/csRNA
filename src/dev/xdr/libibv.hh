@@ -25,12 +25,7 @@
 #ifndef __LIBIBV_HH__
 #define __LIBIBV_HH__
 
-#include <deque>
-#include <queue>
-#include <string>
-#include <list>
-
-#include "base/addr_range.hh"
+#include "dev/xdr/accel_defs.hh"
 #include "dev/rdma/hangu_rnic.hh"
 #include "dev/rdma/kfd_ioctl.h"
 #include "dev/xdr/nic_ctrl.hh"
@@ -380,9 +375,6 @@ struct hghca_cq {
 
 
 class Ibv : public SimObject{
-    private:
-        NicCtrl *nicCtrl;
-
     public:
         typedef IbvParams Params;
         const Params *params() const {
@@ -392,7 +384,10 @@ class Ibv : public SimObject{
         Ibv(const Params *params);
         ~Ibv();
 
+        NicCtrl *nicCtrl;
+
         MemAllocator *memAlloc;
+        MemAllocator *hostmemAlloc;
 
         typedef struct {
             Addr addr;
@@ -418,7 +413,7 @@ class Ibv : public SimObject{
         struct ibv_cq * ibv_create_cq(struct ibv_context *context, struct ibv_cq_init_attr *cq_attr);
         struct ibv_qp * ibv_create_qp(struct ibv_context *context, struct ibv_qp_create_attr *qp_attr);
         int ibv_modify_qp(struct ibv_context *context, struct ibv_qp *qp);
-        struct ibv_mr * ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr);
+        struct ibv_mr * ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr, bool is_hostmem=false);
         int ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct ibv_qp *qp, uint8_t num);
         int ibv_post_recv(struct ibv_context *context, struct ibv_wqe *wqe, struct ibv_qp *qp, uint8_t num);
 

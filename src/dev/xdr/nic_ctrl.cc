@@ -51,10 +51,13 @@ using namespace std;
 NicCtrl::NicCtrl(const Params *p)
     : PciDevice(p),
     rnic(p->rnic),
-    /* The first 8 bits are used for mail reply */
-    mailboxAlloc(p->base_addr + sizeof(uint8_t)),
+    /* The first 8 bits are used for mail reply.
+     * The remaining 1024-8 are used for command from software.
+     */
+    mailboxAlloc(p->base_addr + 1024),
     memAlloc(p->base_addr + sizeof(uint8_t) + (MAILBOX_PAGE_NUM << 12) * 64),
-    mailboxRange(sizeof(uint8_t), sizeof(uint8_t) + (MAILBOX_PAGE_NUM << 12) * 64),
+    hostmemAlloc(0x1000000000000000),
+    mailboxRange(1024, 1024 + (MAILBOX_PAGE_NUM << 12) * 64),
     //nicCtrlEvent([this]{ nicCtrl(); }, name())
     sendMailEvent([this]{ sendMail(); }, name()),
     wait2SendEvent([this]{ wait2Send(); }, name())
@@ -65,6 +68,9 @@ NicCtrl::NicCtrl(const Params *p)
 
         BARSize[0]  = (1 << 30);
         BARAddrs[0] = p->base_addr;
+
+        /* Base addr for command from software */
+        cmdBase = p->base_addr + 8;
 
         /* Get doorbell and HCR addrs of rnic */
         AddrRangeList addr_list = rnic->getAddrRanges();
@@ -124,8 +130,8 @@ int NicCtrl::nicCtrl(unsigned nicCtrlReq, void * ioc_buf) {
             DPRINTF(NicCtrl, " ioctl : HGKFD_IOC_INIT_DEV.\n");
 
             //TypedBufferArg<kfd_ioctl_init_dev_args> args(ioc_buf);
-            struct kfd_ioctl_init_dev_args *args;
-            args = (struct kfd_ioctl_init_dev_args *) ioc_buf;
+            //struct kfd_ioctl_init_dev_args *args;
+            //args = (struct kfd_ioctl_init_dev_args *) ioc_buf;
 
             //initMailbox();
             DPRINTF(NicCtrl, " HGKFD_IOC_INIT_DEV mailbox initialized\n");
@@ -788,7 +794,7 @@ MemBlock MemAllocator::allocMem(size_t size) {
     recycleMem();
 
     auto it = memMap.begin();
-    for (it; std::next(it, 1) != memMap.end(); it++) {
+    for (; std::next(it, 1) != memMap.end(); it++) {
         if (it->paddr.end() + size < std::next(it, 1)->paddr.start()) {
             break;
         }

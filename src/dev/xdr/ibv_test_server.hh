@@ -2,9 +2,9 @@
 #define __IBV_TEST_SERVER_H__
 
 #include "params/IbvTestServer.hh"
-#include "ibv_test_base.hh"
+#include "accel.hh"
 
-class IbvTestServer : public IbvTestBase {
+class IbvTestServer : public Accel {
     public:
         typedef IbvTestServerParams Params;
         const Params *params() const {
