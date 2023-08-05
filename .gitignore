@@ -34,3 +34,4 @@ configs/dram/lowp_sweep.cfg
 scripts/res_out/**
 tests/test-progs/hangu-rnic/bin/**
 *.bak
+tests/test-progs/nic-ctrl/bin/*

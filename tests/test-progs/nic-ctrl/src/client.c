@@ -7,11 +7,12 @@
 #include <sys/mman.h>
 #include <stdint.h>
 #include <string.h>
+#include <malloc.h>
 
 #define KERNEL_FILE_NAME "/dev/accel"
 
 int main() {
-    size_t mem_len = 1024;
+    unsigned long mem_len = 1024;
     struct accelkfd_ioctl_mr_addr *args =
         (struct accelkfd_ioctl_mr_addr *) malloc(sizeof(struct accelkfd_ioctl_mr_addr));
 
@@ -21,7 +22,7 @@ int main() {
     uint8_t *ctrl_addr = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     printf("[DEBUG] get ctrl_addr 0x%lx\n", (uint64_t)ctrl_addr);
 
-    uint8_t *mr_addr = (uint8_t *)malloc(mem_len);
+    uint8_t *mr_addr = (uint8_t *)memalign(1<<12, mem_len);
     memset(mr_addr, 0, mem_len);
     printf("[DEBUG] allocated addr: %p\n", mr_addr);
     args->side = CLIENT_SIDE;
@@ -35,10 +36,12 @@ int main() {
 
     ioctl(fd, ACCELKFD_START_CLT, NULL);
 
+    int flag = 1;
     while (1) {
-        sleep(2);
-        if (*mr_addr != 0) {
-            printf("The string in mr_addr: %s", (char*)mr_addr);
+        sleep(10);
+        if (flag && *mr_addr != 0 ) {
+            fprintf(stderr, "The string in mr_addr: %s", (char*)mr_addr);
+            /*flag = 0;*/
         }
     }
 

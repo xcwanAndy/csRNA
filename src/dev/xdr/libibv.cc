@@ -23,12 +23,6 @@
 
 #include "libibv.hh"
 
-#include <algorithm>
-#include <cstdint>
-#include <cstring>
-#include <memory>
-#include <queue>
-
 #include "base/addr_range.hh"
 #include "base/inet.hh"
 #include "base/statistics.hh"
@@ -186,8 +180,10 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
     mr_attr->length = len;
     /* This address will be translated into phys addr */
     if (is_hostmem) {
-        mr->addr = (uint8_t *)mr_attr->vaddr;
+        mr->addr = (uint8_t *)mr_attr->vaddr; /* 0x6c0aa0 */
+        //mr->addr = (uint8_t *)0x7fff5c0000;
     } else {
+        /* The size is aligned, but the start addr is not aligned */
         mr->addr = (uint8_t *)memAlloc->allocMem(mr_attr->length).vaddr.start();
         memset(mr->addr, 0, mr_attr->length);
     }
@@ -206,7 +202,8 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
         mtt_args->vaddr[i] = (uint8_t *)mr->mtt[i].vaddr;
         /* Translate virtual addr into physical addr */
         if (is_hostmem) {
-            mtt_args->paddr[i] = mr_attr->paddr + (i << PAGE_SIZE_LOG);
+            mtt_args->paddr[i] = mr_attr->paddr + (i << PAGE_SIZE_LOG); /*0xc2aa0 */
+            //mtt_args->paddr[i] = 0x7fffb2000;
         } else {
             mtt_args->paddr[i] = memAlloc->getPhyAddr((Addr)mtt_args->vaddr[0]);
         }

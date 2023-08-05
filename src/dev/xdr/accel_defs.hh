@@ -8,6 +8,9 @@
 #include <string>
 #include <list>
 #include <unordered_map>
+#include <algorithm>
+#include <memory>
+#include <malloc.h>
 
 #include "base/addr_range.hh"
 #include "dev/rdma/hangu_rnic_defs.hh"
