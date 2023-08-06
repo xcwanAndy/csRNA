@@ -488,8 +488,8 @@ void Accel::svrProc() {
     /* The first parameter is local lid */
     res = resc_init(svr_lid, num_qp, num_mr, num_cq, num_wqe, false);
 
-    res->ibv_type = IBV_TYPE_RDMA_WRITE;
-    //res->ibv_type = IBV_TYPE_RDMA_READ;
+    //res->ibv_type = IBV_TYPE_RDMA_WRITE;
+    res->ibv_type = IBV_TYPE_RDMA_READ;
 
     DPRINTF(IbvTestServer, "server main function executing ...\n");
 

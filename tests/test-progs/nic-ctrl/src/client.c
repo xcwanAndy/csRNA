@@ -11,6 +11,21 @@
 
 #define KERNEL_FILE_NAME "/dev/accel"
 
+uint32_t fill_read_mr(uint8_t *addr, uint32_t offset) {
+
+#define TRANS_RRDMA_DATA "hello RDMA Read!"
+
+    // Write data to mr
+    char *string = (char *)(addr + offset);
+    memcpy(string, TRANS_RRDMA_DATA, sizeof(TRANS_RRDMA_DATA));
+
+    fprintf(stderr, "init_snd_wqe: string is %s, string vaddr is 0x%lx, start vaddr is 0x%lx\n",
+            string, (uint64_t)string, (uint64_t)(addr + offset));
+
+    offset += sizeof(TRANS_RRDMA_DATA);
+    return offset;
+}
+
 int main() {
     unsigned long mem_len = 1024;
     struct accelkfd_ioctl_mr_addr *args =
@@ -30,18 +45,20 @@ int main() {
     args->paddr = 0;
     args->size = mem_len;
 
+    fill_read_mr(mr_addr, 0);
+
     /*memcpy(ctrl_addr, args, sizeof(struct kfd_ioctl_mr_addr));*/
 
     ioctl(fd, ACCELKFD_SEND_MR_ADDR, (void *)args);
 
     ioctl(fd, ACCELKFD_START_CLT, NULL);
 
-    int flag = 1;
+    int flag = 0;
     while (1) {
         sleep(10);
         if (flag && *mr_addr != 0 ) {
             fprintf(stderr, "The string in mr_addr: %s", (char*)mr_addr);
-            /*flag = 0;*/
+            flag = 0;
         }
     }
 
