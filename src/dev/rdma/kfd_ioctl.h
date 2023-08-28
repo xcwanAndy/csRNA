@@ -177,6 +177,16 @@ struct kfd_ioctl_get_time_args {
     uint64_t cur_time; /* current time of simulation */
 };
 
+/* Maintain the mapping between host memory and accelerater memory */
+#define OFFPATH_ACCEL2HOST 1
+#define OFFPATH_HOST2ACCEL 2
+struct kfd_ioctl_set_mem_map {
+    /* input */
+    //uint8_t op;
+    uint32_t size;
+    uint64_t host_mem;
+};
+
 
 
 #define HGKFD_IOCTL_BASE 'K'
@@ -217,6 +227,9 @@ struct kfd_ioctl_get_time_args {
 
 #define HGKFD_IOC_GET_TIME		\
 		HGKFD_IOW(0x0b, struct kfd_ioctl_get_time_args)
+
+#define HGKFD_IOC_SET_MEM_MAP   \
+        HGKFD_IOW(0x0c, struct kfd_ioctl_set_mem_map)
 
 #define HGKFD_COMMAND_START    0x01
 #define HGKFD_COMMAND_END      0x0b

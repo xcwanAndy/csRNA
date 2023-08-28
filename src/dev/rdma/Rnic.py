@@ -50,6 +50,9 @@ class HanGuRnic(RdmaNic):
     mac_addr   = Param.UInt64(0x0, "Ethernet Hardware Address")
     
     interface = EtherInt("Ethernet Interface")
+
+    # offpath
+    is_onpath = Param.Bool(True, "If onpath or not")
     
     mpt_cache_num = Param.Int(40000,
         "Number of mpt cache enteries")
@@ -78,7 +81,7 @@ class HanGuRnic(RdmaNic):
     MinimumGrant = 0xff
     InterruptLine = 0x1e
     InterruptPin = 0x01
-    BAR0Size = '1kB'
+    BAR0Size = '128kB'
     
     dma_read_delay = Param.Latency('500ns', "delay after desc fetch occurs")
     dma_write_delay = Param.Latency('250ns', "delay after desc wb occurs")

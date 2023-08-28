@@ -25,6 +25,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <memory>
@@ -59,9 +60,12 @@ NicCtrl::NicCtrl(const Params *p)
      * The remaining 1024-8 are used for command from software.
      */
     mailboxAlloc(p->base_addr + 1024),
-    memAlloc(p->base_addr + 1024 + (MAILBOX_PAGE_NUM << 12) * 64),
+    memAlloc(p->base_addr + 1024 + (MAILBOX_PAGE_NUM << 12)),
+    dataMRAlloc(p->base_addr + 1024 + (MAILBOX_PAGE_NUM << 12) * 64),
     cmdRange(sizeof(uint8_t), 1024),
-    mailboxRange(1024, 1024 + (MAILBOX_PAGE_NUM << 12) * 64),
+    mailboxRange(1024, 1024 + (MAILBOX_PAGE_NUM << 12)),
+    memAllocRange(1024 + (MAILBOX_PAGE_NUM << 12), 1024 + (MAILBOX_PAGE_NUM << 12) * 64),
+    is_onpath(p->is_onpath),
     //nicCtrlEvent([this]{ nicCtrl(); }, name())
     sendMailEvent([this]{ sendMail(); }, name()),
     wait2SendEvent([this]{ wait2Send(); }, name())
@@ -80,6 +84,10 @@ NicCtrl::NicCtrl(const Params *p)
         doorBell = hcrAddr + 0x18;
 
         pendMailRecord = 0;
+
+        //offpath_accel_addr = p->base_addr + 0xf00000000000000;
+        //rnic->offpath_accel_addr = offpath_accel_addr;
+        rnic->offpath_rnic_addr = 0xc000000000010000;
 } // NicCtrl::NicCtrl
 
 NicCtrl::~NicCtrl() {
@@ -305,15 +313,26 @@ Tick NicCtrl::read(PacketPtr pkt) {
         /* Set memBlock Invalid */
         MemBlock *memBlock = mailboxAlloc.getPhyBlock(paddr);
         memBlock->isValid = false;
-    } else {
+    } else if (memAllocRange.contains(daddr)){
         /* Other data */
         Addr vaddr = memAlloc.getVirAddr(paddr);
+        DPRINTF(PioEngine, " Onpath read %d bytes from 0x%x\n", pkt->getSize(), paddr);
         pkt->setData((uint8_t *)vaddr);
+    } else {
+        Addr vaddr = dataMRAlloc.getVirAddr(paddr);
+        MemBlock *block = dataMRAlloc.getPhyBlock(paddr);
+        Addr relative_addr = vaddr - block->vaddr.start();
+        uint8_t *tmp = (uint8_t*)malloc(1 << 12);
+        DPRINTF(PioEngine, " Accelerater offpath read %d bytes from 0x%x\n",
+                pkt->getSize(), rnic->offpath_rnic_addr + relative_addr);
+        dmaRead(rnic->offpath_rnic_addr + relative_addr, pkt->getSize(), nullptr, tmp);
+        DPRINTF(PioEngine, " Return offpath data %s from rnic\n", tmp);
+        pkt->setData(tmp);
     }
-
     pkt->makeAtomicResponse();
     return pioDelay;
 }
+
 
 Tick NicCtrl::write(PacketPtr pkt) {
     int bar;
@@ -341,16 +360,24 @@ Tick NicCtrl::write(PacketPtr pkt) {
         processCmd(pkt);
     } else if (mailboxRange.contains(daddr)) {
         DPRINTF(PioEngine, " Write to mailbox: not implemented!\n");
-    } else {
+    } else if (memAllocRange.contains(daddr)){
+        /* Packets come from network */
         Addr vaddr = memAlloc.getVirAddr(paddr);
         memcpy((uint8_t *)vaddr, pkt->getPtr<uint8_t>(), pkt->getSize());
         DPRINTF(PioEngine, " PioEngine.write: Writing data to 0x%x\n", vaddr);
+    } else {
+        Addr vaddr = dataMRAlloc.getVirAddr(paddr);
+        MemBlock *block = dataMRAlloc.getPhyBlock(paddr);
+        Addr relative_addr = vaddr - block->vaddr.start();
+        DPRINTF(PioEngine, "Write to offpath RNIC\n");
+        dmaWrite(rnic->offpath_rnic_addr + relative_addr, pkt->getSize(), nullptr, pkt->getPtr<uint8_t>());
     }
-
     pkt->makeAtomicResponse();
     return pioDelay;
 }
 
+
+/* Processing combined cmd from software */
 void NicCtrl::processCmd(PacketPtr pkt) {
     struct accelkfd_ioctl_type type;
     uint32_t type_size = sizeof(struct accelkfd_ioctl_type);

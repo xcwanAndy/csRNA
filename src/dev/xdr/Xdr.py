@@ -39,6 +39,9 @@ class NicCtrl(PciDevice):
     # rnic as a parameter
     rnic = Param.HanGuRnic("HanGu Rnic")
 
+    # offpath
+    is_onpath = Param.Bool(True, "If onpath or not")
+
     base_addr = Param.Addr(0xD000000000000000,
                           "Base Addr")
 
@@ -69,7 +72,7 @@ class NicCtrl(PciDevice):
     MinimumGrant = 0xff
     InterruptLine = 0x1e
     InterruptPin = 0x01
-    BAR0Size = '1kB'
+    BAR0Size = '128kB'
 
     dma_read_delay = Param.Latency('500ns', "delay after desc fetch occurs")
     dma_write_delay = Param.Latency('250ns', "delay after desc wb occurs")
@@ -88,11 +91,13 @@ class Ibv(SimObject):
     type = 'Ibv'
     cxx_header = "dev/xdr/libibv.hh"
     nic_ctrl = Param.NicCtrl("Rnic Controller")
+    is_onpath = Param.Bool(True, "If onpath")
 
 class Accel(SimObject):
     type = 'Accel'
     cxx_header = "dev/xdr/accel.hh"
     ibv = Param.Ibv("IB Verbs")
+    is_onpath = Param.Bool(True, "If onpath")
 
 class IbvTestClient(Accel):
     type = 'IbvTestClient'

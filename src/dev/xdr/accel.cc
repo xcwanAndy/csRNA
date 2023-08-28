@@ -6,6 +6,7 @@
 
 Accel::Accel(const Params *p)
     : SimObject(p),
+    is_onpath(p->is_onpath),
     ibv(p->ibv),
     pollCplEvent([this] { poll_cpl(); }, name()),
     rdmaOpEvent([this] { rdma_op_pre(); }, name()),
@@ -326,12 +327,11 @@ void Accel::rdma_op_pre() {
 
 void Accel::rdma_op_post(struct cpl_desc *desc) {
 
-    if (desc->trans_type == IBV_TYPE_RDMA_WRITE) {
-        DPRINTF(Accel, "rdma_op_post: ibv_poll_cpl write completion:\n");
-        DPRINTF(Accel, "\t%d bytes transfered\n", desc->byte_cnt);
-        DPRINTF(Accel, "\ttrans_type: %d, srv_type: %d\n", desc->trans_type, desc->srv_type);
-        DPRINTF(Accel, "\tqp_num: %d, cq_num: %d.\n", desc->qp_num, desc->cq_num);
-    } else if (desc->trans_type == IBV_TYPE_RDMA_READ) {
+    DPRINTF(Accel, "rdma_op_post: ibv_poll_cpl write/read completion:\n");
+    DPRINTF(Accel, "\t%d bytes transfered\n", desc->byte_cnt);
+    DPRINTF(Accel, "\ttrans_type: %d, srv_type: %d\n", desc->trans_type, desc->srv_type);
+    DPRINTF(Accel, "\tqp_num: %d, cq_num: %d.\n", desc->qp_num, desc->cq_num);
+    if (false) {
         char *string = (char *)res->mr[0]->addr;
         DPRINTF(Accel, "The string from RDMA Read is '%s'\n", string);
     }
@@ -340,7 +340,7 @@ void Accel::rdma_op_post(struct cpl_desc *desc) {
 
 
 /******************************* Config *********************************/
-struct rdma_resc *Accel::resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe, bool is_hostmem) {
+struct rdma_resc *Accel::resc_init(uint16_t llid, int num_qp, int num_mr, int num_cq, int num_wqe, bool is_onpath) {
     struct rdma_resc *res = (struct rdma_resc *)malloc(sizeof(struct rdma_resc));
     memset(res, 0, sizeof(struct rdma_resc));
     res->num_mr  = num_mr;
@@ -364,7 +364,7 @@ struct rdma_resc *Accel::resc_init(uint16_t llid, int num_qp, int num_mr, int nu
     struct ibv_mr_init_attr mr_attr;
     mr_attr.length = 1 << 12;
     mr_attr.flag = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_WR | MR_FLAG_LOCAL | MR_FLAG_REMOTE);
-    if (is_hostmem) {
+    if (is_onpath) {
         if (mrArgsQueue.empty()) {
             panic("The mr args queue is empty.");
         }
@@ -374,7 +374,7 @@ struct rdma_resc *Accel::resc_init(uint16_t llid, int num_qp, int num_mr, int nu
         mr_attr.paddr = mr_args.paddr;
         DPRINTF(Accel, "Host Memory: mr_attr.vaddr 0x%x, paddr 0x%x\n", mr_attr.vaddr, mr_attr.paddr);
     }
-    res->mr[0] = ibv->ibv_reg_mr(res->ctx, &mr_attr, is_hostmem);
+    res->mr[0] = ibv->ibv_reg_mr(res->ctx, &mr_attr, is_onpath, true);
     DPRINTF(Accel, "[test requester] ibv_reg_mr End! lkey %d, vaddr 0x%lx\n", res->mr[0]->lkey, (uint64_t)res->mr[0]->addr);
 
     struct ibv_cq_init_attr cq_attr;
@@ -456,7 +456,7 @@ void Accel::cltProc(){
     svr_lid=0x22; /* server's MAC */
 
     int num_qp = 1, num_mr = 1, num_cq = 1, num_wqe = 1;
-    res = resc_init(clt_lid, num_qp, num_mr, num_cq, num_wqe, true);
+    res = resc_init(clt_lid, num_qp, num_mr, num_cq, num_wqe, is_onpath);
 
     //fill_read_mr(res->mr[0]);
 
@@ -486,7 +486,7 @@ void Accel::svrProc() {
 
     int num_qp = 1, num_mr = 1, num_cq = 1, num_wqe = 1;
     /* The first parameter is local lid */
-    res = resc_init(svr_lid, num_qp, num_mr, num_cq, num_wqe, false);
+    res = resc_init(svr_lid, num_qp, num_mr, num_cq, num_wqe, is_onpath);
 
     //res->ibv_type = IBV_TYPE_RDMA_WRITE;
     res->ibv_type = IBV_TYPE_RDMA_READ;

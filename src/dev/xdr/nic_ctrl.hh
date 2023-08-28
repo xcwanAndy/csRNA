@@ -50,9 +50,14 @@ class NicCtrl : public PciDevice {
         Addr doorBell;
         MemAllocator mailboxAlloc;
         MemAllocator memAlloc;
+        MemAllocator dataMRAlloc;
 
         AddrRange cmdRange;
         AddrRange mailboxRange;
+        AddrRange memAllocRange;
+
+        /* if offpath */
+        int is_onpath;
 
     public:
         typedef NicCtrlParams Params;
@@ -69,6 +74,10 @@ class NicCtrl : public PciDevice {
         // Attirbute access
         Addr getDoorbell() { return doorBell; }
         MemAllocator *getMemAlloc(){ return &memAlloc; }
+        MemAllocator *getDataMRAlloc(){ return &dataMRAlloc; }
+
+        /* offpath related variables */
+        //uint64_t offpath_accel_addr;
 
         // Control Interface
         //int nicCtrl();

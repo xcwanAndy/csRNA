@@ -95,6 +95,8 @@ struct rdma_cr {
 
 
 class Accel : public SimObject {
+    private:
+        bool is_onpath;
     public:
         typedef AccelParams Params;
         const Params *params() const {

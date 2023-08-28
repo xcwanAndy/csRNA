@@ -387,9 +387,11 @@ class Ibv : public SimObject{
         Ibv(const Params *params);
         ~Ibv();
 
+        bool is_onpath;
         NicCtrl *nicCtrl;
 
         MemAllocator *memAlloc;
+        MemAllocator *dataMRAlloc;
 
         typedef struct {
             Addr addr;
@@ -415,7 +417,7 @@ class Ibv : public SimObject{
         struct ibv_cq * ibv_create_cq(struct ibv_context *context, struct ibv_cq_init_attr *cq_attr);
         struct ibv_qp * ibv_create_qp(struct ibv_context *context, struct ibv_qp_create_attr *qp_attr);
         int ibv_modify_qp(struct ibv_context *context, struct ibv_qp *qp);
-        struct ibv_mr * ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr, bool is_hostmem=false);
+        struct ibv_mr * ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr, bool is_onpath=true, bool is_datamr=false);
         int ibv_post_send(struct ibv_context *context, struct ibv_wqe *wqe, struct ibv_qp *qp, uint8_t num);
         int ibv_post_recv(struct ibv_context *context, struct ibv_wqe *wqe, struct ibv_qp *qp, uint8_t num);
 

@@ -133,7 +133,11 @@ def make_nic_system(options, CPUClass, test_mem_mode, is_client=False):
         mac_addr = 0x22
         cmd = SERVER
 
+    # Set up accelerater
     system.accel = Accel()
+    # Bind accelerater driver
+    accel_driver = AccelDriver(filename="accel")
+    accel_driver.accel = system.accel
 
     system.ibv = Ibv()
     system.accel.ibv = system.ibv
@@ -148,9 +152,9 @@ def make_nic_system(options, CPUClass, test_mem_mode, is_client=False):
     system.nic_platform.rdma_nic.cpu_num       = options.num_cpus
     # Attach RNIC to iobus
     system.nic_platform.attachIO(system.iobus)
-
-    accel_driver = AccelDriver(filename="accel")
-    accel_driver.accel = system.accel
+    # Bind rnic to driver
+    rdma_driver = HanGuDriver(filename="hangu_rnic0")
+    rdma_driver.device = system.nic_platform.rdma_nic
 
     system.intrctrl = IntrControl()
 
@@ -161,12 +165,25 @@ def make_nic_system(options, CPUClass, test_mem_mode, is_client=False):
     system.ibv.nic_ctrl = system.nic_platform.nic_ctrl
     # system.nic_platform.nic_ctrl.accel = system.accel
 
+    # Set offpath or onpath
+    if (options.is_onpath):
+        system.nic_platform.rdma_nic.is_onpath = True
+        system.nic_platform.nic_ctrl.is_onpath = True
+        system.ibv.is_onpath = True
+        system.accel.is_onpath = True
+    else:
+        system.nic_platform.rdma_nic.is_onpath = False
+        system.nic_platform.nic_ctrl.is_onpath = False
+        system.ibv.is_onpath = False
+        system.accel.is_onpath = False
+
+
     # Set process
     process = Process(pid = 100)
     process.executable = cmd
     process.cwd = os.getcwd()
     process.cmd = [cmd]
-    process.drivers = [accel_driver]
+    process.drivers = [accel_driver, rdma_driver]
     system.cpu[0].workload = process
     system.cpu[0].createThreads()
 
@@ -204,6 +221,9 @@ def get_hangu_rnic_options():
     parser.add_option("--reorder-cap", default=100,
                         action="store", type="int",
                         help="capacity of qpc cache\nDEFAULT: 50 entries")
+    parser.add_option("--is-onpath", action="store_true",
+                        default=True,
+                        help="if onpath")
 
     (options, args) = parser.parse_args()
 
@@ -221,9 +241,11 @@ def main():
 
     (CPUClass, test_mem_mode, FutureClass) = Simulation.setCPUClass(options)
 
-    client_system = make_nic_system(options, CPUClass, test_mem_mode, True)
+    client_system = make_nic_system(options, CPUClass, test_mem_mode,
+                                    is_client=True)
 
-    server_system = make_nic_system(options, CPUClass, test_mem_mode, False)
+    server_system = make_nic_system(options, CPUClass, test_mem_mode,
+                                    is_client=False)
 
     # for cpu in system.cpu:
         # cpu.wait_for_remote_gdb = True

@@ -21,6 +21,8 @@
  */
 
 #include "dev/rdma/hangu_driver.hh"
+#include "dev/rdma/kfd_ioctl.h"
+#include <cstring>
 
 
 
@@ -243,7 +245,27 @@ HanGuDriver::ioctl(ThreadContext *tc, unsigned req, Addr ioc_buf) {
         {   
             /* We don't check `go` bit here, cause it 
              * has been checked at the beginning of ioctl. */
-            // HANGU_PRINT(HanGuDriver, " ioctl : HGKFD_IOC_CHECK_GO, `GO` is cleared.\n");
+            HANGU_PRINT(HanGuDriver, " ioctl : HGKFD_IOC_CHECK_GO, `GO` is cleared.\n");
+        }
+        break;
+
+        /* Set the mem mapping between host memory and accelerater memory */
+      case HGKFD_IOC_SET_MEM_MAP:
+        {
+            HANGU_PRINT(HanGuDriver, " ioctl : HGKFD_IOC_SET_MEM_MAP\n");
+            TypedBufferArg<kfd_ioctl_set_mem_map> args(ioc_buf);
+            args.copyIn(virt_proxy);
+
+            Addr paddr;
+            process->pTable->translate((Addr) args->host_mem, (Addr &)paddr);
+            HANGU_PRINT(HanGuDriver, " The offpath physical addr of 0x%x is 0x%x\n",
+                    args->host_mem, paddr);
+
+            struct kfd_ioctl_set_mem_map args_tmp;
+            memcpy(&args_tmp, args, sizeof(struct kfd_ioctl_set_mem_map));
+            args_tmp.host_mem = paddr;
+
+            virt_proxy.writeBlob(hcrAddr + 0x24, &args_tmp, sizeof(struct kfd_ioctl_set_mem_map));
         }
         break;
       default:

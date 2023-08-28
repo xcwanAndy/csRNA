@@ -29,10 +29,12 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <queue>
 
 #include "base/inet.hh"
+#include "base/logging.hh"
 #include "base/statistics.hh"
 #include "base/trace.hh"
 #include "base/random.hh"
@@ -40,6 +42,7 @@
 #include "dev/net/etherpkt.hh"
 #include "debug/HanGu.hh"
 #include "dev/rdma/hangu_rnic_defs.hh"
+#include "dev/rdma/kfd_ioctl.h"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
 #include "params/HanGuRnic.hh"
@@ -52,6 +55,7 @@ using namespace std;
 
 HanGuRnic::HanGuRnic(const Params *p)
   : RdmaNic(p), etherInt(NULL),
+    is_onpath(p->is_onpath),
     doorbellVector(p->reorder_cap),
     ceuProcEvent      ([this]{ ceuProc();      }, name()),
     doorbellProcEvent ([this]{ doorbellProc(); }, name()),
@@ -89,7 +93,7 @@ HanGuRnic::HanGuRnic(const Params *p)
         // HANGU_PRINT(PioEngine, " mac[%d] 0x%x\n", ETH_ADDR_LEN - 1 - i, macAddr[ETH_ADDR_LEN - 1 - i]);
     }
 
-    BARSize[0]  = (1 << 12);
+    BARSize[0]  = (1 << 20);
     BARAddrs[0] = 0xc000000000000000;
 }
 
@@ -142,7 +146,7 @@ HanGuRnic::read(PacketPtr pkt) {
     assert(bar == 0);
 
     /* Only 32bit accesses allowed */
-    assert(pkt->getSize() == 4);
+    //assert(pkt->getSize() == 4);
 
     // HANGU_PRINT(PioEngine, " Read device addr 0x%x, pioDelay: %d\n", daddr, pioDelay);
 
@@ -153,6 +157,15 @@ HanGuRnic::read(PacketPtr pkt) {
         pkt->setLE<uint32_t>(regs.cmdCtrl.go()<<31 | regs.cmdCtrl.op());
     } else if (daddr == 0x20) {/* Access `sync` reg */
         pkt->setLE<uint32_t>(syncSucc);
+    } else if (daddr >= 0x10000) {
+        uint64_t relative_addr = 0;
+        uint8_t *tmp = (uint8_t*)malloc(1 << 12);
+        relative_addr = pkt->getAddr() - offpath_rnic_addr;
+        DPRINTF(PioEngine, " Rnic offpath read %d bytes from 0x%x\n",
+                pkt->getSize(), offpath_host_mem + relative_addr);
+        dmaRead(offpath_host_mem + relative_addr, pkt->getSize(), nullptr, tmp);
+        DPRINTF(PioEngine, " Return offpath data %s from host\n", (char *)tmp);
+        pkt->setData(tmp);
     } else {
         pkt->setLE<uint32_t>(0);
     }
@@ -231,6 +244,17 @@ HanGuRnic::write(PacketPtr pkt) {
         }
 
         HANGU_PRINT(HanGuRnic, " PioEngine.write: sync bit end, value %#X, syncCnt %d\n", pkt->getLE<uint32_t>(), syncCnt); 
+    } else if (daddr == 0x24 && pkt->getSize() == sizeof(struct kfd_ioctl_set_mem_map)){
+        /* Add memory map to simulating offpath accelerater */
+        struct kfd_ioctl_set_mem_map mem_map = pkt->getLE<kfd_ioctl_set_mem_map>();
+            HANGU_PRINT(HanGuRnic, "Offpath: setting up host memory\n");
+            offpath_host_mem = mem_map.host_mem;
+            HANGU_PRINT(HanGuRnic, " Host mem 0x%x used as offpath addr\n", offpath_host_mem);
+    } else if (daddr >= 0x10000) {
+        uint64_t relative_addr = 0;
+        relative_addr = pkt->getAddr() - offpath_rnic_addr;
+        HANGU_PRINT(HanGuRnic, "Write to offpath host memory: 0x%x\n", offpath_host_mem + relative_addr);
+        dmaWrite(offpath_host_mem + relative_addr, pkt->getSize(), nullptr, pkt->getPtr<uint8_t>());
     } else {
         panic("Write request to unknown address : %#x && size 0x%x\n", daddr, pkt->getSize());
     }

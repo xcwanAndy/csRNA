@@ -175,6 +175,10 @@ class HanGuDriver final : public EmulatedDriver {
     void initMailbox(Process *process);
     /* -------mailbox {end} ------- */
 
+    /* ------- memmap {begin} ------- */
+    void set_mem_map(PortProxy& portProxy, TypedBufferArg<kfd_ioctl_set_mem_map> &args);
+    /* ------- memmap {end} ------- */
+
 };
 
 #endif // __RDMA_HANGU_DRIVER_HH__

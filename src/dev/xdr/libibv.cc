@@ -41,12 +41,14 @@
 
 Ibv::Ibv(const Params *p)
     : SimObject(p),
+    is_onpath(p->is_onpath),
     nicCtrl(p->nic_ctrl),
     sendDooebellEvent([this] {sendDoorbell();}, name()),
     waitMailReplyEvent([this] {waitMailReply();}, name())
 {
         DPRINTF(Ibv, " Initializing Ibv\n");
         memAlloc = nicCtrl->getMemAlloc();
+        dataMRAlloc = nicCtrl->getDataMRAlloc();
 }
 
 Ibv::~Ibv(){}
@@ -130,7 +132,7 @@ int Ibv::ibv_open_device(struct ibv_context *context, uint16_t lid) {
     struct ibv_mr_init_attr mr_attr;
     mr_attr.length = PAGE_SIZE;
     mr_attr.flag = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_WR | MR_FLAG_LOCAL);
-    context->cm_mr = ibv_reg_mr(context, &mr_attr);
+    context->cm_mr = ibv_reg_mr(context, &mr_attr, is_onpath);
 
     struct ibv_cq_init_attr cq_attr;
     cq_attr.size_log = PAGE_SIZE_LOG;
@@ -161,7 +163,7 @@ int Ibv::ibv_open_device(struct ibv_context *context, uint16_t lid) {
     return 0;
 }
 
-struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr, bool is_hostmem) {
+struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_attr *mr_attr, bool is_onpath, bool is_datamr) {
     DPRINTF(Ibv, " ibv_reg_mr!\n");
     //struct hghca_context *dvr = (struct hghca_context *)context->dvr;
     struct ibv_mr *mr =  (struct ibv_mr *)malloc(sizeof(struct ibv_mr));
@@ -179,11 +181,16 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
     len = ((uint64_t)(len / PAGE_SIZE) + 1) * PAGE_SIZE;
     mr_attr->length = len;
     /* This address will be translated into phys addr */
-    if (is_hostmem) {
-        mr->addr = (uint8_t *)mr_attr->vaddr; /* 0x6c0aa0 */
-        //mr->addr = (uint8_t *)0x7fff5c0000;
-    } else {
+    if (is_datamr) {
         /* The size is aligned, but the start addr is not aligned */
+        if (is_onpath) {
+            mr->addr = (uint8_t *)mr_attr->vaddr; /* 0x6c0aa0 */
+            //mr->addr = (uint8_t *)0x7fff5c0000;
+        } else {
+            mr->addr = (uint8_t *)dataMRAlloc->allocMem(mr_attr->length).vaddr.start();
+            memset(mr->addr, 0, mr_attr->length);
+        }
+    } else {
         mr->addr = (uint8_t *)memAlloc->allocMem(mr_attr->length).vaddr.start();
         memset(mr->addr, 0, mr_attr->length);
     }
@@ -201,9 +208,13 @@ struct ibv_mr* Ibv::ibv_reg_mr(struct ibv_context *context, struct ibv_mr_init_a
         mtt_args->batch_size = 1;
         mtt_args->vaddr[i] = (uint8_t *)mr->mtt[i].vaddr;
         /* Translate virtual addr into physical addr */
-        if (is_hostmem) {
-            mtt_args->paddr[i] = mr_attr->paddr + (i << PAGE_SIZE_LOG); /*0xc2aa0 */
-            //mtt_args->paddr[i] = 0x7fffb2000;
+        if (is_datamr) {
+            if (is_onpath) {
+                mtt_args->paddr[i] = mr_attr->paddr + (i << PAGE_SIZE_LOG); /*0xc2aa0 */
+                //mtt_args->paddr[i] = 0x7fffb2000;
+            } else {
+                mtt_args->paddr[i] = dataMRAlloc->getPhyAddr((Addr)mtt_args->vaddr[0]);
+            }
         } else {
             mtt_args->paddr[i] = memAlloc->getPhyAddr((Addr)mtt_args->vaddr[0]);
         }
@@ -343,7 +354,7 @@ struct ibv_cq* Ibv::ibv_create_cq(struct ibv_context *context, struct ibv_cq_ini
             (struct ibv_mr_init_attr *)malloc(sizeof(struct ibv_mr_init_attr));
     mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_RD | MR_FLAG_LOCAL | MR_FLAG_WR);
     mr_attr->length = (1 << cq_attr->size_log); // (PAGE_SIZE << 2); // !TODO: Now the size is a fixed number of 1 page
-    cq->mr = ibv_reg_mr(context, mr_attr);
+    cq->mr = ibv_reg_mr(context, mr_attr, is_onpath);
     free(mr_attr);
 
     /* write CQC */
@@ -383,12 +394,12 @@ struct ibv_qp* Ibv::ibv_create_qp(struct ibv_context *context, struct ibv_qp_cre
             (struct ibv_mr_init_attr *)malloc(sizeof(struct ibv_mr_init_attr));
     mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_WR | MR_FLAG_LOCAL);
     mr_attr->length = (1 << qp_attr->sq_size_log); // !TODO: Now the size is a fixed number of 1 page
-    qp->snd_mr = ibv_reg_mr(context, mr_attr);
+    qp->snd_mr = ibv_reg_mr(context, mr_attr, is_onpath);
 
     // Init (Allocate and write) RQ MTT && MPT
     mr_attr->flag   = (enum ibv_mr_flag)(MR_FLAG_WR | MR_FLAG_LOCAL);
     mr_attr->length = (1 << qp_attr->rq_size_log); // !TODO: Now the size is a fixed number of 1 page
-    qp->rcv_mr = ibv_reg_mr(context, mr_attr);
+    qp->rcv_mr = ibv_reg_mr(context, mr_attr, is_onpath);
     DPRINTF(Ibv, " Get out of ibv_reg_mr in create_qp! qpn is : 0x%x\n", qp->qp_num);
     free(mr_attr);
 

@@ -59,6 +59,9 @@ class HanGuRnic : public RdmaNic {
     // device registers
     Regs regs;
 
+    /* if offpath */
+    int is_onpath;
+
     // packet fifos, interact with Ethernet Link
     std::queue<EthPacketPtr> rxFifo;
     std::queue<EthPacketPtr> txFifo;
@@ -892,6 +895,9 @@ class HanGuRnic : public RdmaNic {
     uint8_t macAddr[ETH_ADDR_LEN];
     bool isMacEqual(uint8_t *devSrcMac, uint8_t *pktDstMac);
 
+    /* offpath simulation related variables */
+    uint64_t offpath_host_mem;
+
   public:
     typedef HanGuRnicParams Params;
     const Params *
@@ -913,7 +919,9 @@ class HanGuRnic : public RdmaNic {
     Tick read(PacketPtr pkt) override;
     Tick write(PacketPtr pkt) override;
 
-    
+    uint64_t offpath_rnic_addr;
+    //uint64_t offpath_accel_addr;
+
     /* Ethernet callback */
     void ethTxDone(); // When TX done
     bool ethRxDelay(EthPacketPtr packet);

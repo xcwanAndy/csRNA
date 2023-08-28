@@ -75,6 +75,7 @@ const uint8_t WRITE_MPT = 0x03;
 const uint8_t WRITE_MTT = 0x04;
 const uint8_t WRITE_QPC = 0x05;
 const uint8_t WRITE_CQC = 0x06;
+const uint8_t SET_MEM_MAP = 0x07;
 
 struct Doorbell {
     uint8_t  opcode;
