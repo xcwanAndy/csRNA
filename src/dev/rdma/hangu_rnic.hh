@@ -44,6 +44,7 @@
 #include "dev/net/etherpkt.hh"
 #include "dev/net/pktfifo.hh"
 #include "dev/pci/device.hh"
+#include "mem/packet.hh"
 #include "params/HanGuRnic.hh"
 
 

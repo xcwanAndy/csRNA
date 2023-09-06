@@ -87,7 +87,7 @@ int main() {
         sleep(10);
         if (flag && *(char *)mem_map_args->host_mem != 0 ) {
             fprintf(stderr, "The string in mr_addr: '%s'\n", (char*)mem_map_args->host_mem);
-            /*flag = 0;*/
+            flag = 0;
         }
     }
 

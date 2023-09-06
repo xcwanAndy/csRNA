@@ -3468,8 +3468,15 @@ HanGuRnic::DmaEngine::dmaWriteProcessing () {
                 rnic->schedule(dmaChnlProcEvent, curTick() + rnic->clockPeriod());
             }
             
-            /* Schedule DMA Write completion event */
-            dmaReq->schd = curTick() + delay;
+            Tick offpath_delay = delay * 2;
+
+            /* Schedule DMA read completion event */
+            if (rnic->is_onpath) {
+                dmaReq->schd = curTick() + delay;
+            } else {
+                /* A round between rnic and accelerater */
+                dmaReq->schd = curTick() + offpath_delay;
+            }
             dmaWrReq2RspFifo.push(dmaReq);
             if (!dmaWriteCplEvent.scheduled()) {
                 rnic->schedule(dmaWriteCplEvent, dmaReq->schd);
@@ -3601,9 +3608,16 @@ HanGuRnic::DmaEngine::dmaReadProcessing () {
             if (!dmaChnlProcEvent.scheduled()) {
                 rnic->schedule(dmaChnlProcEvent, curTick() + rnic->clockPeriod());
             }
-            
+
+            Tick offpath_delay = delay * 2;
+
             /* Schedule DMA read completion event */
-            dmaReq->schd = curTick() + delay;
+            if (rnic->is_onpath) {
+                dmaReq->schd = curTick() + delay;
+            } else {
+                /* A round between rnic and accelerater */
+                dmaReq->schd = curTick() + offpath_delay;
+            }
             dmaRdReq2RspFifo.push(dmaReq);
             if (!dmaReadCplEvent.scheduled()) {
                 rnic->schedule(dmaReadCplEvent, dmaReq->schd);

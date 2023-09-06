@@ -222,7 +222,7 @@ def get_hangu_rnic_options():
                         action="store", type="int",
                         help="capacity of qpc cache\nDEFAULT: 50 entries")
     parser.add_option("--is-onpath", action="store_true",
-                        default=True,
+                        default=False,
                         help="if onpath")
 
     (options, args) = parser.parse_args()

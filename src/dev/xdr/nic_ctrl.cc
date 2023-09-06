@@ -37,6 +37,7 @@
 #include "base/trace.hh"
 #include "base/random.hh"
 #include "debug/Drain.hh"
+#include "dev/dma_device.hh"
 #include "dev/net/etherpkt.hh"
 #include "debug/XDR.hh"
 #include "dev/rdma/kfd_ioctl.h"
@@ -333,6 +334,26 @@ Tick NicCtrl::read(PacketPtr pkt) {
     return pioDelay;
 }
 
+/*
+void NicCtrl::waitRead() {
+    assert(!accelReadRnic.empty());
+    PacketPtr pkt = accelReadRnic.front();
+    accelReadRnic.pop();
+
+    Addr paddr = pkt->getAddr();
+
+    Addr vaddr = dataMRAlloc.getVirAddr(paddr);
+    MemBlock *block = dataMRAlloc.getPhyBlock(paddr);
+    Addr relative_addr = vaddr - block->vaddr.start();
+    uint8_t *tmp = (uint8_t*)malloc(1 << 12);
+    DPRINTF(PioEngine, " Accelerater offpath read %d bytes from 0x%x\n",
+            pkt->getSize(), rnic->offpath_rnic_addr + relative_addr);
+    dmaRead(rnic->offpath_rnic_addr + relative_addr, pkt->getSize(), nullptr, tmp);
+
+    pkt->setData(tmp);
+    pkt->makeAtomicResponse();
+}
+*/
 
 Tick NicCtrl::write(PacketPtr pkt) {
     int bar;
@@ -375,6 +396,8 @@ Tick NicCtrl::write(PacketPtr pkt) {
     pkt->makeAtomicResponse();
     return pioDelay;
 }
+
+//void NicCtrl::waitWrite() {}
 
 
 /* Processing combined cmd from software */

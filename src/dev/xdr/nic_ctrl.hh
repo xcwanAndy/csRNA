@@ -37,6 +37,7 @@
 #include "dev/net/pktfifo.hh"
 #include "dev/pci/device.hh"
 #include "params/SrcClockDomain.hh"
+#include "sim/eventq.hh"
 #include "sim/syscall_emul_buf.hh"
 #include "sim/sim_object.hh"
 #include "params/NicCtrl.hh"
@@ -56,7 +57,7 @@ class NicCtrl : public PciDevice {
         AddrRange mailboxRange;
         AddrRange memAllocRange;
 
-        /* if offpath */
+        /* similating offpath */
         int is_onpath;
 
     public:
