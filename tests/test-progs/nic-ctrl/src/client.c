@@ -1,50 +1,4 @@
-#include "../../../../src/dev/xdr/kfd_ioctl.hh"
-#include "../../../../src/dev/rdma/kfd_ioctl.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <stdint.h>
-#include <string.h>
-#include <malloc.h>
-
-#define ACCEL_FILE_NAME "/dev/accel"
-#define RNIC_FILE_NAME "/dev/hangu_rnic0"
-
-uint32_t fill_read_mr(uint8_t *addr, uint32_t offset) {
-
-#define TRANS_RRDMA_DATA "hello RDMA Read!"
-
-    // Write data to mr
-    char *string = (char *)(addr + offset);
-    memcpy(string, TRANS_RRDMA_DATA, sizeof(TRANS_RRDMA_DATA));
-
-    fprintf(stderr, "init_snd_wqe: string is %s, string vaddr is 0x%lx, start vaddr is 0x%lx\n",
-            string, (uint64_t)string, (uint64_t)(addr + offset));
-
-    offset += sizeof(TRANS_RRDMA_DATA);
-    return offset;
-}
-
-struct accelkfd_ioctl_mr_addr * set_mr_addr_args() {
-    unsigned long mem_len = 1024;
-    struct accelkfd_ioctl_mr_addr *args =
-        (struct accelkfd_ioctl_mr_addr *) malloc(sizeof(struct accelkfd_ioctl_mr_addr));
-
-    uint8_t *mr_addr = (uint8_t *)memalign(1<<12, mem_len);
-    memset(mr_addr, 0, mem_len);
-    printf("[DEBUG] allocated addr: %p\n", mr_addr);
-    args->side = CLIENT_SIDE;
-    args->vaddr = (uint64_t)mr_addr;
-    args->paddr = 0;
-    args->size = mem_len;
-
-    fill_read_mr(mr_addr, 0);
-
-    return args;
-}
+#include "common.h"
 
 int main() {
     /* Open and mmap accelerater */
@@ -62,7 +16,7 @@ int main() {
 
 
     /* Set memory region args for accelerater */
-    struct accelkfd_ioctl_mr_addr *args = set_mr_addr_args();
+    struct accelkfd_ioctl_mr_addr *args = set_mr_addr_args(CLIENT_SIDE, 1024, 0);
     ioctl(accel_fd, ACCELKFD_SEND_MR_ADDR, (void *)args);
 
 
@@ -75,7 +29,7 @@ int main() {
         (struct kfd_ioctl_set_mem_map *)malloc(sizeof(struct kfd_ioctl_set_mem_map));
     mem_map_args->size = 1 << 12;
     mem_map_args->host_mem = (uint64_t)offpath_addr;
-    fill_read_mr(offpath_addr, 0);
+    fill_read_mr(offpath_addr, 0, DATA_8B, sizeof(DATA_8B));
     ioctl(rnic_fd, HGKFD_IOC_SET_MEM_MAP, (void*)mem_map_args);
 
     /* Start client */

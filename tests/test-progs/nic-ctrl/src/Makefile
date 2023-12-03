@@ -1,13 +1,18 @@
+CC=gcc
+CFLAGS=-c -Wall
+LDFLAGS=-static
+COMMON_SOURCES=common.c
+
 all: loop client server
 
 loop: loop.c
-	gcc -static ./loop.c -o ../bin/loop
+	$(CC) $(LDFLAGS) loop.c -o ../bin/$@
 
-client: client.c
-	gcc -static ./client.c -o ../bin/client
+client: client.c common.h
+	$(CC) $(LDFLAGS) $< $(COMMON_SOURCES) -o ../bin/$@
 
-server: server.c
-	gcc -static ./server.c -o ../bin/server
+server: server.c common.h
+	$(CC) $(LDFLAGS) $< $(COMMON_SOURCES) -o ../bin/$@
 
 clean:
 	rm ../bin/loop ../bin/client ../bin/server

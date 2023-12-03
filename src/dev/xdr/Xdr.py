@@ -77,8 +77,8 @@ class NicCtrl(PciDevice):
     dma_read_delay = Param.Latency('500ns', "delay after desc fetch occurs")
     dma_write_delay = Param.Latency('250ns', "delay after desc wb occurs")
 
-    pci_speed = Param.NetworkBandwidth('1Gbps', "pci speed in bits per second")
-    ether_speed = Param.NetworkBandwidth('1Gbps',
+    pci_speed = Param.NetworkBandwidth('128Gbps', "pci speed in bits per second")
+    ether_speed = Param.NetworkBandwidth('100Gbps',
                                          "NIC speed in bits per second")
 
     reorder_cap = Param.Int(100,

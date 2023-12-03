@@ -4,6 +4,10 @@
 #include "dev/xdr/libibv.hh"
 #include "accel.hh"
 
+#define DATA_8B "8 bytes"
+#define DATA_64B "==========================64 bytes============================="
+
+
 Accel::Accel(const Params *p)
     : SimObject(p),
     is_onpath(p->is_onpath),
@@ -90,7 +94,7 @@ struct ibv_wqe *Accel::init_snd_wqe (struct ibv_context *ctx, struct rdma_cr *cr
 }
 
 
-struct ibv_wqe *Accel::init_rdma_write_wqe (struct ibv_mr* local_mr) {
+struct ibv_wqe *Accel::init_rdma_write_wqe(struct ibv_mr* local_mr) {
 
     uint64_t raddr = res->rinfo->raddr;
     uint32_t rkey = res->rinfo->rkey;
@@ -101,15 +105,15 @@ struct ibv_wqe *Accel::init_rdma_write_wqe (struct ibv_mr* local_mr) {
 
     // Write data to mr
     uint32_t offset = 0;
-    char *string = (char *)(local_mr->addr + offset);
-    memcpy(string, RDMA_WRITE_DATA, sizeof(RDMA_WRITE_DATA));
-    DPRINTF(Accel, "init_rdma_write_wqe: string is %s, string vaddr is 0x%lx, start vaddr is 0x%lx\n",
-                string, (uint64_t)string, (uint64_t)(local_mr->addr + offset));
+    //char *string = (char *)(local_mr->addr + offset);
+    //memcpy(string, DATA_8B, sizeof(DATA_8B));
+    //DPRINTF(Accel, "init_rdma_write_wqe: string is %s, string vaddr is 0x%lx, start vaddr is 0x%lx\n",
+                //string, (uint64_t)string, (uint64_t)(local_mr->addr + offset));
 
 
     for (int i = 0; i < res->num_wqe; ++i) {
 
-        wqe[i].length = sizeof(RDMA_WRITE_DATA);
+        wqe[i].length = sizeof(DATA_8B);
         wqe[i].mr = local_mr;
         wqe[i].offset = offset;
 
@@ -117,13 +121,13 @@ struct ibv_wqe *Accel::init_rdma_write_wqe (struct ibv_mr* local_mr) {
 
         // Add RDMA Write element
         wqe[i].trans_type = IBV_TYPE_RDMA_WRITE;
-        wqe[i].rdma.raddr = raddr + (sizeof(RDMA_WRITE_DATA) -1) * i + offset;
+        wqe[i].rdma.raddr = raddr + (sizeof(DATA_8B) -1) * i + offset;
         wqe[i].rdma.rkey  = rkey;
     }
     return wqe;
 }
 
-struct ibv_wqe *Accel::init_rdma_read_wqe (struct ibv_mr* local_mr) {
+struct ibv_wqe *Accel::init_rdma_read_wqe(struct ibv_mr* local_mr) {
 
     struct ibv_wqe *wqe = (struct ibv_wqe *)malloc(sizeof(struct ibv_wqe));
 
@@ -132,7 +136,7 @@ struct ibv_wqe *Accel::init_rdma_read_wqe (struct ibv_mr* local_mr) {
     // Write read data to local_mr
     uint32_t offset = 0;
 
-    wqe->length = sizeof(TRANS_RRDMA_DATA);
+    wqe->length = sizeof(DATA_8B);
     DPRINTF(Accel, "init_rdma_read_wqe: len is %d, addr: 0x%lx, key: %x\n",
             wqe->length, (uint64_t)res->rinfo->raddr, res->rinfo->rkey);
     wqe->mr = local_mr;
@@ -314,7 +318,7 @@ void Accel::rdma_op_pre() {
 
     for (int i = 0; i < res->num_qp; ++i) {
         ibv->ibv_post_send(res->ctx, rdma_wqe, res->qp[i], 1);
-        DPRINTF(Accel, "IBV post wqe to qp %d!\n", res->qp[i]->qp_num);
+        DPRINTF(Accel, "Post read/write wqe to qp %d!\n", res->qp[i]->qp_num);
 
         cplWaitingList.insert(res->cq[i]);
         DPRINTF(Accel, "Put %d cq into waiting list\n", res->cq[i]->cq_num);
@@ -488,8 +492,8 @@ void Accel::svrProc() {
     /* The first parameter is local lid */
     res = resc_init(svr_lid, num_qp, num_mr, num_cq, num_wqe, is_onpath);
 
-    //res->ibv_type = IBV_TYPE_RDMA_WRITE;
-    res->ibv_type = IBV_TYPE_RDMA_READ;
+    res->ibv_type = IBV_TYPE_RDMA_WRITE;
+    //res->ibv_type = IBV_TYPE_RDMA_READ;
 
     DPRINTF(IbvTestServer, "server main function executing ...\n");
 
